@@ -171,6 +171,7 @@ const sharedUniforms = {
 const vertexShader = `
   uniform vec3 uObserverPos;
   uniform vec3 uWorldMotionDir;
+  uniform vec3 uLocalMotionDir;
   uniform float uBeta;
   uniform float uSpeed;
   uniform int uLorentzEnabled;
@@ -185,13 +186,9 @@ const vertexShader = `
     vec3 localNormal = normal;
     vUv = uv;
 
-    // Motion is defined in world space. To apply Lorentz contraction correctly
-    // to a rotated mesh, pull the world motion direction back into the mesh's
-    // local space first, then contract along that local axis, and only then
-    // rotate/translate the vertex with modelMatrix.
     vec3 worldDir = normalize(uWorldMotionDir);
+    vec3 localMotionDir = normalize(uLocalMotionDir);
     mat3 model3 = mat3(modelMatrix);
-    vec3 localMotionDir = normalize(transpose(model3) * worldDir);
 
     if (uLorentzEnabled == 1 && uBeta > 0.0001) {
       float contraction = sqrt(max(1.0 - uBeta * uBeta, 0.0001));
@@ -208,7 +205,6 @@ const vertexShader = `
     vec4 worldPos4 = modelMatrix * vec4(localPos, 1.0);
     vec3 worldPos = worldPos4.xyz;
 
-    // Aberration/retarded-position shift is applied last in world space.
     if (uAberrationEnabled == 1 && uBeta > 0.0001) {
       vec3 rel = worldPos - uObserverPos;
       float x0 = dot(rel, worldDir);
@@ -263,6 +259,7 @@ function makeRelativisticMaterial(colorHex) {
     uniforms: {
       uObserverPos: sharedUniforms.uObserverPos,
       uWorldMotionDir: sharedUniforms.uWorldMotionDir,
+      uLocalMotionDir: { value: new THREE.Vector3(1, 0, 0) },
       uBeta: sharedUniforms.uBeta,
       uSpeed: sharedUniforms.uSpeed,
       uLorentzEnabled: sharedUniforms.uLorentzEnabled,
@@ -446,6 +443,9 @@ renderer.setAnimationLoop(() => {
   moveDesktop(dt);
   moveVR(dt);
 
+  const inverseQuat = new THREE.Quaternion();
+  const localMotionDir = new THREE.Vector3();
+
   for (const item of movers) {
     const m = item.mesh;
     m.position.x += motionSpeed * dt;
@@ -460,6 +460,10 @@ renderer.setAnimationLoop(() => {
     m.position.y = item.laneY + 0.35 * Math.sin(elapsed * 0.9 + item.offset);
     m.rotation.y += item.spinY * dt;
     m.rotation.z += item.spinZ * dt;
+
+    inverseQuat.copy(m.quaternion).invert();
+    localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
+    m.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
   }
 
   renderer.render(scene, camera);
