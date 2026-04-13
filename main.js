@@ -598,7 +598,6 @@ const vrUI = {
   aberrationRow: null
 };
 vrUI.panel.visible = false;
-scene.add(vrUI.panel);
 
 const panelBg = new THREE.Mesh(
   new THREE.PlaneGeometry(3.45, 2.55),
@@ -962,12 +961,10 @@ window.addEventListener('resize', () => {
 renderer.xr.addEventListener('sessionstart', () => {
   if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
   desktopPanel.classList.add('hidden');
-  vrUI.panel.visible = true;
 });
 
 renderer.xr.addEventListener('sessionend', () => {
   desktopPanel.classList.remove('hidden');
-  vrUI.panel.visible = false;
   setVRHoverStates(new Set());
 });
 
