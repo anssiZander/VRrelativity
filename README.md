@@ -54,7 +54,7 @@ WebXR immersive VR needs HTTPS, so for the headset the easiest route is to host 
 
 ### VR controls
 
-- Left thumbstick = move / strafe
+- Left thumbstick = move / strafe in headset look direction (including up/down if you look up/down)
 - Right thumbstick left-right = turn
 - Right thumbstick up-down = fly up / down
 
@@ -64,3 +64,7 @@ WebXR immersive VR needs HTTPS, so for the headset the easiest route is to host 
 - Relativistic distortion is computed relative to that fixed observer position, not your current camera location.
 - The checkbox turns the effect on/off.
 - The beta slider changes `v/c`.
+
+Additional tweaks in this build:
+- Moving relativistic meshes are set to render double-sided and frustum culling is disabled for them.
+- Moving primitives use a procedural checker pattern based on their existing colors.

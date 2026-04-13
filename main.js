@@ -173,9 +173,11 @@ const vertexShader = `
 
   varying vec3 vWorldNormal;
   varying vec3 vWorldPos;
+  varying vec2 vUv;
 
   void main() {
     vec3 localPos = position;
+    vUv = uv;
 
     if (uEffectEnabled == 1 && uBeta > 0.0001) {
       float contraction = sqrt(max(1.0 - uBeta * uBeta, 0.0001));
@@ -213,6 +215,7 @@ const fragmentShader = `
   uniform vec3 uColor;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPos;
+  varying vec2 vUv;
 
   void main() {
     vec3 n = normalize(vWorldNormal);
@@ -224,7 +227,12 @@ const fragmentShader = `
     float ambient = 0.26;
     float fresnel = pow(1.0 - max(dot(n, normalize(cameraPosition - vWorldPos)), 0.0), 2.0);
 
-    vec3 color = uColor * (ambient + 0.85 * diff1 + 0.35 * diff2) + 0.22 * fresnel;
+    float checker = mod(floor(vUv.x * 8.0) + floor(vUv.y * 8.0), 2.0);
+    vec3 baseA = min(uColor * 1.08, vec3(1.0));
+    vec3 baseB = uColor * 0.55;
+    vec3 checkerColor = mix(baseA, baseB, checker);
+
+    vec3 color = checkerColor * (ambient + 0.85 * diff1 + 0.35 * diff2) + 0.22 * fresnel;
     gl_FragColor = vec4(color, 1.0);
   }
 `;
@@ -239,7 +247,8 @@ function makeRelativisticMaterial(colorHex) {
       uColor: { value: new THREE.Color(colorHex) }
     },
     vertexShader,
-    fragmentShader
+    fragmentShader,
+    side: THREE.DoubleSide
   });
 }
 
@@ -253,7 +262,9 @@ function createMovingMesh(kind, colorHex) {
     geometry = new THREE.CapsuleGeometry(0.8, 1.8, 6, 14);
   }
 
-  return new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
+  const mesh = new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
+  mesh.frustumCulled = false;
+  return mesh;
 }
 
 const movers = [];
@@ -372,17 +383,16 @@ function moveVR(dt) {
 
   if (Math.abs(rightX) > 0) player.rotation.y -= rightX * 1.8 * dt;
 
-  const headForward = new THREE.Vector3();
-  camera.getWorldDirection(headForward);
-  headForward.y = 0;
-  if (headForward.lengthSq() < 1e-6) headForward.set(0, 0, -1);
-  headForward.normalize();
+  const cameraWorldQuat = new THREE.Quaternion();
+  camera.getWorldQuaternion(cameraWorldQuat);
 
-  const headRight = new THREE.Vector3().crossVectors(headForward, new THREE.Vector3(0, 1, 0)).normalize();
+  const headForward = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraWorldQuat).normalize();
+  const headRight = new THREE.Vector3(1, 0, 0).applyQuaternion(cameraWorldQuat).normalize();
+  const worldUp = new THREE.Vector3(0, 1, 0);
   const move = new THREE.Vector3();
   move.addScaledVector(headRight, leftX);
   move.addScaledVector(headForward, -leftY);
-  move.y += -rightY;
+  move.addScaledVector(worldUp, -rightY);
 
   if (move.lengthSq() > 0) {
     move.normalize().multiplyScalar(4.8 * dt);
