@@ -289,7 +289,7 @@ function createMovingMesh(kind, colorHex) {
   }
 
   const mesh = new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
-  mesh.frustumCulled = false;
+  mesh.frustumCulled = true;
   return mesh;
 }
 
@@ -802,41 +802,22 @@ const tempMatrix = new THREE.Matrix4();
 const tempOrigin = new THREE.Vector3();
 const tempDirection = new THREE.Vector3();
 const controllerGripVisualLength = 8;
-const rayStartOffset = 0.06;
 
 function buildController(index, color) {
   const controller = renderer.xr.getController(index);
   controller.userData.hovered = null;
   controller.userData.intersection = null;
   controller.userData.selecting = false;
-  controller.userData.connected = false;
-  controller.userData.targetRayMode = null;
 
   const lineGeometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0, -rayStartOffset),
+    new THREE.Vector3(0, 0, 0),
     new THREE.Vector3(0, 0, -1)
   ]);
   const line = new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 }));
   line.name = 'ray';
-  line.visible = false;
   line.scale.z = controllerGripVisualLength;
   controller.add(line);
   player.add(controller);
-
-  controller.addEventListener('connected', (event) => {
-    controller.userData.connected = true;
-    controller.userData.targetRayMode = event.data?.targetRayMode || null;
-  });
-
-  controller.addEventListener('disconnected', () => {
-    controller.userData.connected = false;
-    controller.userData.targetRayMode = null;
-    controller.userData.hovered = null;
-    controller.userData.intersection = null;
-    controller.userData.selecting = false;
-    const ray = controller.getObjectByName('ray');
-    if (ray) ray.visible = false;
-  });
 
   controller.addEventListener('selectstart', () => {
     controller.userData.selecting = true;
@@ -899,10 +880,7 @@ function updateVRUIInteraction() {
       controller.userData.hovered = null;
       controller.userData.intersection = null;
       const ray = controller.getObjectByName('ray');
-      if (ray) {
-        ray.visible = false;
-        ray.scale.z = controllerGripVisualLength;
-      }
+      if (ray) ray.scale.z = controllerGripVisualLength;
     }
     return;
   }
@@ -910,19 +888,6 @@ function updateVRUIInteraction() {
   const activeObjects = new Set();
 
   for (const controller of controllers) {
-    const ray = controller.getObjectByName('ray');
-
-    const canPoint = controller.userData.connected && controller.userData.targetRayMode === 'tracked-pointer';
-    if (!canPoint) {
-      controller.userData.hovered = null;
-      controller.userData.intersection = null;
-      if (ray) {
-        ray.visible = false;
-        ray.scale.z = controllerGripVisualLength;
-      }
-      continue;
-    }
-
     tempMatrix.identity().extractRotation(controller.matrixWorld);
     tempOrigin.setFromMatrixPosition(controller.matrixWorld);
     tempDirection.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
@@ -940,8 +905,8 @@ function updateVRUIInteraction() {
       }
     }
 
+    const ray = controller.getObjectByName('ray');
     if (ray) {
-      ray.visible = true;
       ray.scale.z = hit ? Math.max(0.15, hit.distance) : controllerGripVisualLength;
     }
   }
