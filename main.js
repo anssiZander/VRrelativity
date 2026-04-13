@@ -895,6 +895,16 @@ function buildController(index, color) {
   line.visible = false;
   line.scale.z = controllerGripVisualLength;
   controller.add(line);
+
+  const handMesh = new THREE.Mesh(
+    new THREE.SphereGeometry(0.04, 16, 12),
+    new THREE.MeshStandardMaterial({ color, emissive: 0x224a78, transparent: true, opacity: 0.9 })
+  );
+  handMesh.name = 'handMesh';
+  handMesh.visible = true;
+  controller.add(handMesh);
+  controller.userData.handMesh = handMesh;
+
   player.add(controller);
 
   controller.addEventListener('connected', (event) => {
@@ -910,6 +920,7 @@ function buildController(index, color) {
     controller.userData.selecting = false;
     const ray = controller.getObjectByName('ray');
     if (ray) ray.visible = false;
+    if (controller.userData.handMesh) controller.userData.handMesh.visible = false;
   });
 
   controller.addEventListener('selectstart', () => {
@@ -966,63 +977,69 @@ function activateVRUI(target, intersection) {
   }
 }
 
-function getPalmUpPose(source, xrFrame, referenceSpace) {
-  const worldUp = new THREE.Vector3(0, 1, 0);
-
-  let pose = null;
+function getPoseFromInput(source, xrFrame, referenceSpace) {
   if (source.hand) {
     const wristJoint = source.hand.get('wrist');
     if (wristJoint) {
-      pose = xrFrame.getJointPose(wristJoint, referenceSpace);
+      const jointPose = xrFrame.getJointPose(wristJoint, referenceSpace);
+      if (jointPose) return jointPose;
     }
   }
 
-  if (!pose && source.gripSpace) {
-    pose = xrFrame.getPose(source.gripSpace, referenceSpace);
+  if (source.gripSpace) {
+    return xrFrame.getPose(source.gripSpace, referenceSpace);
   }
 
-  if (!pose) return null;
+  if (source.targetRaySpace) {
+    return xrFrame.getPose(source.targetRaySpace, referenceSpace);
+  }
 
-  const orientation = new THREE.Quaternion().fromArray(pose.transform.orientation);
-  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation).normalize();
-  if (up.dot(worldUp) < 0.45) return null;
-
-  return {
-    position: new THREE.Vector3().fromArray(pose.transform.position),
-    orientation
-  };
+  return null;
 }
 
 function updateVRMenuPose(xrFrame) {
   const session = renderer.xr.getSession();
-  if (!session || !xrFrame) {
+  if (!session) {
     vrUI.panel.visible = false;
     return;
   }
 
   const refSpace = renderer.xr.getReferenceSpace();
-  let palmPose = null;
+  let useSource = null;
 
   for (const source of session.inputSources) {
-    const pose = getPalmUpPose(source, xrFrame, refSpace);
-    if (pose) {
-      palmPose = pose;
+    if (source.handedness === 'right') {
+      useSource = source;
       break;
     }
   }
+  if (!useSource) useSource = session.inputSources[0] || null;
 
-  if (!palmPose) {
-    vrUI.panel.visible = false;
-    return;
+  let pose = null;
+  if (useSource) pose = getPoseFromInput(useSource, xrFrame, refSpace);
+
+  const panelPosition = new THREE.Vector3();
+  const panelOrientation = new THREE.Quaternion();
+
+  if (pose) {
+    panelPosition.fromArray(pose.transform.position);
+    panelOrientation.fromArray(pose.transform.orientation);
+    panelPosition.add(new THREE.Vector3(0, 0.16, -0.28).applyQuaternion(panelOrientation));
+  } else {
+    panelPosition.copy(camera.getWorldPosition(new THREE.Vector3()));
+    const cameraQuat = camera.getWorldQuaternion(new THREE.Quaternion());
+    panelOrientation.copy(cameraQuat);
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraQuat).normalize();
+    panelPosition.addScaledVector(forward, -0.75).add(new THREE.Vector3(0, 0.18, 0));
   }
 
-  vrUI.panel.position.copy(palmPose.position).add(new THREE.Vector3(0, 0.15, 0.26).applyQuaternion(palmPose.orientation));
+  vrUI.panel.position.copy(panelPosition);
   vrUI.panel.lookAt(camera.getWorldPosition(new THREE.Vector3()));
   const euler = new THREE.Euler().setFromQuaternion(vrUI.panel.quaternion, 'YXZ');
   euler.x = 0;
   euler.z = 0;
   vrUI.panel.quaternion.setFromEuler(euler);
-  vrUI.panel.visible = true;
+  vrUI.panel.visible = renderer.xr.isPresenting;
 }
 
 function updateVRUIInteraction() {
@@ -1091,7 +1108,7 @@ window.addEventListener('resize', () => {
 renderer.xr.addEventListener('sessionstart', () => {
   if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
   desktopPanel.classList.add('hidden');
-  vrUI.panel.visible = false;
+  vrUI.panel.visible = true;
 });
 
 renderer.xr.addEventListener('sessionend', () => {
