@@ -98,7 +98,7 @@ function createEnterVRButton(renderer) {
 createEnterVRButton(renderer);
 
 const player = new THREE.Group();
-player.position.set(0, 2.0, 16);
+player.position.set(0, 1.8, 0);
 scene.add(player);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 500);
@@ -717,7 +717,7 @@ const vrHelp2 = createTextPlane({ width: 3.0, height: 0.18, text: 'Left stick: m
 vrHelp2.position.set(-1.45, -1.02, 0.03);
 vrUI.panel.add(vrHelp2);
 
-vrUI.panel.position.set(0, 1.2, -3.2);
+vrUI.panel.position.set(0, 1.3, -2.6);
 vrUI.panel.lookAt(new THREE.Vector3(0, 1.2, 0));
 
 const keys = new Set();
