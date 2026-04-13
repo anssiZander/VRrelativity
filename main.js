@@ -550,8 +550,8 @@ function createVRToggleRow(label, initialValue) {
   checkLabel.position.set(checkbox.position.x, checkbox.position.y - 0.003, 0.02);
   row.add(checkLabel);
 
-  const labelMesh = createTextPlane({ width: 2.3, height: 0.22, text: label, font: 'bold 84px Arial', align: 'left' });
-  labelMesh.position.set(-0.98, 0, 0.02);
+  const labelMesh = createTextPlane({ width: 2.15, height: 0.22, text: label, font: 'bold 84px Arial', align: 'left' });
+  labelMesh.position.set(-0.05, 0, 0.02);
   row.add(labelMesh);
 
   bg.userData = {
@@ -576,11 +576,11 @@ function createVRSliderRow(initialValue) {
   const row = new THREE.Group();
 
   const title = createTextPlane({ width: 1.2, height: 0.18, text: 'β = v/c', font: 'bold 84px Arial', align: 'left' });
-  title.position.set(-1.3, 0.28, 0.02);
+  title.position.set(-1.05, 0.28, 0.02);
   row.add(title);
 
   const valueLabel = createTextPlane({ width: 0.8, height: 0.18, text: initialValue.toFixed(2), font: 'bold 84px Arial', align: 'right' });
-  valueLabel.position.set(1.15, 0.28, 0.02);
+  valueLabel.position.set(1.05, 0.28, 0.02);
   row.add(valueLabel);
 
   const { group: minusGroup, hitTarget: minusTarget } = createVRButton('−', 0.28, 0.28);
@@ -688,8 +688,8 @@ const panelOutline = new THREE.LineLoop(
 );
 vrUI.panel.add(panelOutline);
 
-const panelTitle = createTextPlane({ width: 2.95, height: 0.28, text: 'Relativistic observer VR demo', font: 'bold 86px Arial', align: 'left' });
-panelTitle.position.set(-1.45, 1.02, 0.03);
+const panelTitle = createTextPlane({ width: 3.1, height: 0.28, text: 'Relativistic observer VR demo', font: 'bold 86px Arial', align: 'left' });
+panelTitle.position.set(-1.45, 0.94, 0.03);
 vrUI.panel.add(panelTitle);
 
 vrUI.sliderRow = createVRSliderRow(parseFloat(betaSlider.value));
@@ -709,12 +709,12 @@ vrUI.panel.add(vrUI.aberrationRow.row);
 vrUI.aberrationRow.hitTarget.userData.kind = 'aberration-toggle';
 vrUI.interactables.push(vrUI.aberrationRow.hitTarget);
 
-const vrHelp1 = createTextPlane({ width: 3.0, height: 0.18, text: 'Turn your hand/controller palm up to open the menu', font: '70px Arial', color: '#c9d9eb', align: 'left' });
-vrHelp1.position.set(-1.45, -0.78, 0.03);
+const vrHelp1 = createTextPlane({ width: 3.3, height: 0.16, text: 'Turn your hand/controller palm up to open the menu', font: '68px Arial', color: '#c9d9eb', align: 'left' });
+vrHelp1.position.set(-1.45, -0.72, 0.03);
 vrUI.panel.add(vrHelp1);
 
-const vrHelp2 = createTextPlane({ width: 3.0, height: 0.18, text: 'Left stick: move, right stick: turn + vertical fly', font: '70px Arial', color: '#c9d9eb', align: 'left' });
-vrHelp2.position.set(-1.45, -1.02, 0.03);
+const vrHelp2 = createTextPlane({ width: 3.3, height: 0.16, text: 'Left stick: move, right stick: turn + vertical fly', font: '68px Arial', color: '#c9d9eb', align: 'left' });
+vrHelp2.position.set(-1.45, -0.92, 0.03);
 vrUI.panel.add(vrHelp2);
 
 vrUI.panel.position.set(0, 1.3, -2.6);
