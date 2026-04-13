@@ -289,7 +289,7 @@ function createMovingMesh(kind, colorHex) {
   }
 
   const mesh = new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
-  mesh.frustumCulled = false;
+  mesh.frustumCulled = true;
   return mesh;
 }
 
