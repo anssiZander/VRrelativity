@@ -232,6 +232,7 @@ const vertexShader = `
 
 const fragmentShader = `
   uniform vec3 uColor;
+  uniform float uOpacity;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPos;
   varying vec2 vUv;
@@ -252,7 +253,7 @@ const fragmentShader = `
     vec3 checkerColor = mix(baseA, baseB, checker);
 
     vec3 color = checkerColor * (ambient + 0.85 * diff1 + 0.35 * diff2) + 0.22 * fresnel;
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(color, uOpacity);
   }
 `;
 
@@ -266,11 +267,14 @@ function makeRelativisticMaterial(colorHex) {
       uSpeed: sharedUniforms.uSpeed,
       uLorentzEnabled: sharedUniforms.uLorentzEnabled,
       uAberrationEnabled: sharedUniforms.uAberrationEnabled,
-      uColor: { value: new THREE.Color(colorHex) }
+      uColor: { value: new THREE.Color(colorHex) },
+      uOpacity: { value: 0.6 }
     },
     vertexShader,
     fragmentShader,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false
   });
 }
 
@@ -734,9 +738,12 @@ function moveDesktop(dt) {
 
 function getStickAxes(gamepad) {
   if (!gamepad || !gamepad.axes || gamepad.axes.length < 2) return { x: 0, y: 0 };
+  // Quest thumbsticks typically occupy axes [2,3], but some browsers expose
+  // only the active pair. Prefer [2,3] when present so x/y stay consistent.
+  const baseIndex = gamepad.axes.length >= 4 ? 2 : gamepad.axes.length - 2;
   return {
-    x: gamepad.axes[gamepad.axes.length - 2] || 0,
-    y: gamepad.axes[gamepad.axes.length - 1] || 0
+    x: gamepad.axes[baseIndex] || 0,
+    y: gamepad.axes[baseIndex + 1] || 0
   };
 }
 
@@ -760,11 +767,18 @@ function moveVR(dt) {
       leftY = applyDeadzone(stick.y);
     } else if (source.handedness === 'right') {
       rightX = applyDeadzone(stick.x);
-      rightY = applyDeadzone(stick.y);
+      rightY = stick.y || 0;
     }
   }
 
-  if (Math.abs(rightX) > 0) player.rotation.y -= rightX * 1.8 * dt;
+  if (Math.abs(rightX) > 0.15) player.rotation.y -= rightX * 1.8 * dt;
+
+  // Use a stronger threshold for vertical flying so it does not trigger during
+  // ordinary left/right turning motions. Require a clear up/down intent.
+  let verticalIntent = 0;
+  if (Math.abs(rightY) > 0.6 && Math.abs(rightY) > Math.abs(rightX) + 0.18) {
+    verticalIntent = Math.sign(rightY) * ((Math.abs(rightY) - 0.6) / 0.4);
+  }
 
   const cameraWorldQuat = new THREE.Quaternion();
   camera.getWorldQuaternion(cameraWorldQuat);
@@ -775,7 +789,7 @@ function moveVR(dt) {
   const move = new THREE.Vector3();
   move.addScaledVector(headRight, leftX);
   move.addScaledVector(headForward, -leftY);
-  move.addScaledVector(worldUp, -rightY);
+  move.addScaledVector(worldUp, -verticalIntent);
 
   if (move.lengthSq() > 0) {
     move.normalize().multiplyScalar(4.8 * dt);
@@ -803,7 +817,7 @@ function buildController(index, color) {
   line.name = 'ray';
   line.scale.z = controllerGripVisualLength;
   controller.add(line);
-  scene.add(controller);
+  player.add(controller);
 
   controller.addEventListener('selectstart', () => {
     controller.userData.selecting = true;
