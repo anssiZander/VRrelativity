@@ -76,12 +76,16 @@
       a {
         color: #a9d1ff;
       }
+
+      #panel.hidden {
+        display: none;
+      }
     </style>
   </head>
   <body>
     <div id="app"></div>
 
-    <div id="panel">
+    <div id="panel" aria-label="desktop-controls">
       <h1>Relativistic observer VR demo</h1>
 
       <div class="row">
@@ -112,6 +116,6 @@
       </div>
     </div>
 
-    <script type="module" src="./main.js?v=5"></script>
+    <script type="module" src="./main.js?v=6"></script>
   </body>
 </html>

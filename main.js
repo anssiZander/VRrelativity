@@ -1,6 +1,7 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 
 const container = document.getElementById('app');
+const desktopPanel = document.getElementById('panel');
 const betaSlider = document.getElementById('betaSlider');
 const betaValue = document.getElementById('betaValue');
 const lorentzToggle = document.getElementById('lorentzToggle');
@@ -14,6 +15,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
 
 function createEnterVRButton(renderer) {
@@ -305,6 +307,341 @@ for (let i = 0; i < 8; i++) {
   });
 }
 
+function createRoundedPanelTexture({
+  width = 1024,
+  height = 512,
+  background = '#101722',
+  border = 'rgba(255,255,255,0.12)',
+  radius = 36,
+  lineWidth = 8,
+  text = '',
+  textColor = '#ecf4ff',
+  font = 'bold 96px Arial',
+  align = 'center',
+  paddingX = 60,
+  paddingY = 0,
+  glow = false
+} = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  const w = width;
+  const h = height;
+  const x = lineWidth / 2;
+  const y = lineWidth / 2;
+  const rw = w - lineWidth;
+  const rh = h - lineWidth;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + rw - radius, y);
+  ctx.quadraticCurveTo(x + rw, y, x + rw, y + radius);
+  ctx.lineTo(x + rw, y + rh - radius);
+  ctx.quadraticCurveTo(x + rw, y + rh, x + rw - radius, y + rh);
+  ctx.lineTo(x + radius, y + rh);
+  ctx.quadraticCurveTo(x, y + rh, x, y + rh - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+
+  ctx.fillStyle = background;
+  ctx.fill();
+  if (lineWidth > 0) {
+    ctx.strokeStyle = border;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
+
+  if (text) {
+    ctx.font = font;
+    ctx.fillStyle = textColor;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    if (glow) {
+      ctx.shadowColor = 'rgba(154, 214, 255, 0.6)';
+      ctx.shadowBlur = 18;
+    }
+    const tx = align === 'left' ? paddingX : align === 'right' ? w - paddingX : w / 2;
+    const ty = h / 2 + paddingY;
+    ctx.fillText(text, tx, ty);
+    ctx.shadowBlur = 0;
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return { canvas, ctx, texture };
+}
+
+function createTextPlane({ width, height, text, font = 'bold 92px Arial', color = '#edf5ff', align = 'left' }) {
+  const { canvas, ctx, texture } = createRoundedPanelTexture({
+    width: 1024,
+    height: 256,
+    background: 'rgba(0,0,0,0)',
+    border: 'rgba(0,0,0,0)',
+    radius: 0,
+    lineWidth: 0,
+    text,
+    textColor: color,
+    font,
+    align,
+    paddingX: 32
+  });
+
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+
+  mesh.userData.setText = (nextText) => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    const tx = align === 'left' ? 32 : align === 'right' ? canvas.width - 32 : canvas.width / 2;
+    ctx.fillText(nextText, tx, canvas.height / 2);
+    texture.needsUpdate = true;
+  };
+
+  return mesh;
+}
+
+function createVRButton(label, width, height) {
+  const baseColor = new THREE.Color(0x172334);
+  const hoverColor = new THREE.Color(0x24486c);
+  const activeColor = new THREE.Color(0x147aff);
+
+  const group = new THREE.Group();
+  const bg = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ color: baseColor.clone(), transparent: true, opacity: 0.96 })
+  );
+  group.add(bg);
+
+  const border = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-width / 2, -height / 2, 0.002),
+      new THREE.Vector3(width / 2, -height / 2, 0.002),
+      new THREE.Vector3(width / 2, height / 2, 0.002),
+      new THREE.Vector3(-width / 2, height / 2, 0.002)
+    ]),
+    new THREE.LineBasicMaterial({ color: 0x8bbcff, transparent: true, opacity: 0.5 })
+  );
+  group.add(border);
+
+  const text = createTextPlane({ width: width * 0.88, height: height * 0.58, text: label, align: 'center' });
+  text.position.z = 0.01;
+  group.add(text);
+
+  bg.userData = {
+    kind: 'button',
+    group,
+    text,
+    baseColor,
+    hoverColor,
+    activeColor,
+    setHover(hovered) {
+      bg.material.color.copy(hovered ? hoverColor : baseColor);
+    }
+  };
+
+  return { group, hitTarget: bg, text };
+}
+
+function createVRToggleRow(label, initialValue) {
+  const row = new THREE.Group();
+  const width = 2.95;
+  const height = 0.34;
+
+  const bg = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ color: 0x101722, transparent: true, opacity: 0.98 })
+  );
+  row.add(bg);
+
+  const checkbox = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.22, 0.22),
+    new THREE.MeshBasicMaterial({ color: initialValue ? 0x147aff : 0x1b2431 })
+  );
+  checkbox.position.set(-width / 2 + 0.26, 0, 0.01);
+  row.add(checkbox);
+
+  const checkLabel = createTextPlane({ width: 0.18, height: 0.18, text: initialValue ? '✓' : '', font: 'bold 120px Arial', align: 'center' });
+  checkLabel.position.set(checkbox.position.x, checkbox.position.y - 0.003, 0.02);
+  row.add(checkLabel);
+
+  const labelMesh = createTextPlane({ width: 2.3, height: 0.22, text: label, font: 'bold 84px Arial', align: 'left' });
+  labelMesh.position.set(-0.98, 0, 0.02);
+  row.add(labelMesh);
+
+  bg.userData = {
+    kind: 'toggle',
+    checkbox,
+    checkLabel,
+    value: initialValue,
+    setHover(hovered) {
+      bg.material.color.set(hovered ? 0x182536 : 0x101722);
+    },
+    setValue(v) {
+      bg.userData.value = v;
+      checkbox.material.color.set(v ? 0x147aff : 0x1b2431);
+      checkLabel.userData.setText(v ? '✓' : '');
+    }
+  };
+
+  return { row, hitTarget: bg };
+}
+
+function createVRSliderRow(initialValue) {
+  const row = new THREE.Group();
+
+  const title = createTextPlane({ width: 1.2, height: 0.18, text: 'β = v/c', font: 'bold 84px Arial', align: 'left' });
+  title.position.set(-1.3, 0.28, 0.02);
+  row.add(title);
+
+  const valueLabel = createTextPlane({ width: 0.8, height: 0.18, text: initialValue.toFixed(2), font: 'bold 84px Arial', align: 'right' });
+  valueLabel.position.set(1.15, 0.28, 0.02);
+  row.add(valueLabel);
+
+  const { group: minusGroup, hitTarget: minusTarget } = createVRButton('−', 0.28, 0.28);
+  minusGroup.position.set(-1.35, -0.03, 0.02);
+  row.add(minusGroup);
+
+  const { group: plusGroup, hitTarget: plusTarget } = createVRButton('+', 0.28, 0.28);
+  plusGroup.position.set(1.35, -0.03, 0.02);
+  row.add(plusGroup);
+
+  const trackWidth = 2.32;
+  const trackHeight = 0.14;
+  const track = new THREE.Mesh(
+    new THREE.PlaneGeometry(trackWidth, trackHeight),
+    new THREE.MeshBasicMaterial({ color: 0x1b2431, transparent: true, opacity: 0.98 })
+  );
+  track.position.set(0, -0.03, 0.01);
+  row.add(track);
+
+  const fill = new THREE.Mesh(
+    new THREE.PlaneGeometry(trackWidth, trackHeight * 0.78),
+    new THREE.MeshBasicMaterial({ color: 0x147aff, transparent: true, opacity: 0.92 })
+  );
+  fill.position.set(0, -0.03, 0.015);
+  row.add(fill);
+
+  const knob = new THREE.Mesh(
+    new THREE.CircleGeometry(0.085, 24),
+    new THREE.MeshBasicMaterial({ color: 0xe9f5ff })
+  );
+  knob.position.set(0, -0.03, 0.02);
+  row.add(knob);
+
+  const border = new THREE.LineLoop(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(-trackWidth / 2, -trackHeight / 2, 0.022),
+      new THREE.Vector3(trackWidth / 2, -trackHeight / 2, 0.022),
+      new THREE.Vector3(trackWidth / 2, trackHeight / 2, 0.022),
+      new THREE.Vector3(-trackWidth / 2, trackHeight / 2, 0.022)
+    ]),
+    new THREE.LineBasicMaterial({ color: 0x92c7ff, transparent: true, opacity: 0.65 })
+  );
+  border.position.copy(track.position);
+  row.add(border);
+
+  track.userData = {
+    kind: 'slider',
+    valueLabel,
+    fill,
+    knob,
+    trackWidth,
+    setHover(hovered) {
+      track.material.color.set(hovered ? 0x243247 : 0x1b2431);
+    },
+    setValue(v) {
+      const t = THREE.MathUtils.clamp(v / 0.95, 0, 1);
+      const minFill = 0.025;
+      fill.scale.x = Math.max(t, minFill);
+      fill.position.x = (-trackWidth / 2) + (trackWidth * fill.scale.x) / 2;
+      fill.position.y = track.position.y;
+      knob.position.x = THREE.MathUtils.lerp(-trackWidth / 2, trackWidth / 2, t);
+      knob.position.y = track.position.y;
+      valueLabel.userData.setText(v.toFixed(2));
+    }
+  };
+
+  minusTarget.userData.kind = 'beta-minus';
+  plusTarget.userData.kind = 'beta-plus';
+
+  return {
+    row,
+    sliderTarget: track,
+    minusTarget,
+    plusTarget,
+    valueLabel,
+    setValue: track.userData.setValue
+  };
+}
+
+const vrUI = {
+  panel: new THREE.Group(),
+  interactables: [],
+  hoverObjects: new Set(),
+  sliderRow: null,
+  lorentzRow: null,
+  aberrationRow: null
+};
+vrUI.panel.visible = false;
+scene.add(vrUI.panel);
+
+const panelBg = new THREE.Mesh(
+  new THREE.PlaneGeometry(3.45, 2.55),
+  new THREE.MeshBasicMaterial({ color: 0x0a1018, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+);
+vrUI.panel.add(panelBg);
+
+const panelOutline = new THREE.LineLoop(
+  new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-1.725, -1.275, 0.01),
+    new THREE.Vector3(1.725, -1.275, 0.01),
+    new THREE.Vector3(1.725, 1.275, 0.01),
+    new THREE.Vector3(-1.725, 1.275, 0.01)
+  ]),
+  new THREE.LineBasicMaterial({ color: 0x8bc2ff, transparent: true, opacity: 0.35 })
+);
+vrUI.panel.add(panelOutline);
+
+const panelTitle = createTextPlane({ width: 2.95, height: 0.28, text: 'Relativistic observer VR demo', font: 'bold 86px Arial', align: 'left' });
+panelTitle.position.set(-1.45, 1.02, 0.03);
+vrUI.panel.add(panelTitle);
+
+vrUI.sliderRow = createVRSliderRow(parseFloat(betaSlider.value));
+vrUI.sliderRow.row.position.set(0, 0.52, 0.03);
+vrUI.panel.add(vrUI.sliderRow.row);
+vrUI.interactables.push(vrUI.sliderRow.sliderTarget, vrUI.sliderRow.minusTarget, vrUI.sliderRow.plusTarget);
+
+vrUI.lorentzRow = createVRToggleRow('Lorentz transform', lorentzToggle.checked);
+vrUI.lorentzRow.row.position.set(0, 0.06, 0.03);
+vrUI.panel.add(vrUI.lorentzRow.row);
+vrUI.lorentzRow.hitTarget.userData.kind = 'lorentz-toggle';
+vrUI.interactables.push(vrUI.lorentzRow.hitTarget);
+
+vrUI.aberrationRow = createVRToggleRow('Aberration', aberrationToggle.checked);
+vrUI.aberrationRow.row.position.set(0, -0.34, 0.03);
+vrUI.panel.add(vrUI.aberrationRow.row);
+vrUI.aberrationRow.hitTarget.userData.kind = 'aberration-toggle';
+vrUI.interactables.push(vrUI.aberrationRow.hitTarget);
+
+const vrHelp1 = createTextPlane({ width: 3.0, height: 0.18, text: 'Left stick: move in headset look direction', font: '70px Arial', color: '#c9d9eb', align: 'left' });
+vrHelp1.position.set(-1.45, -0.78, 0.03);
+vrUI.panel.add(vrHelp1);
+
+const vrHelp2 = createTextPlane({ width: 3.0, height: 0.18, text: 'Right stick: turn + vertical fly', font: '70px Arial', color: '#c9d9eb', align: 'left' });
+vrHelp2.position.set(-1.45, -1.02, 0.03);
+vrUI.panel.add(vrHelp2);
+
+vrUI.panel.position.set(6.2, 1.45, 0);
+vrUI.panel.lookAt(new THREE.Vector3(0, 1.1, 0));
+
 const keys = new Set();
 let pointerLocked = false;
 let yaw = 0;
@@ -328,19 +665,41 @@ document.addEventListener('mousemove', (event) => {
 document.addEventListener('keydown', (e) => keys.add(e.code));
 document.addEventListener('keyup', (e) => keys.delete(e.code));
 
-betaSlider.addEventListener('input', () => {
-  const v = parseFloat(betaSlider.value);
+function setBeta(nextValue) {
+  const v = THREE.MathUtils.clamp(nextValue, 0, 0.95);
   sharedUniforms.uBeta.value = v;
+  betaSlider.value = v.toFixed(2);
   betaValue.textContent = v.toFixed(2);
+  vrUI.sliderRow.setValue(v);
+}
+
+function setLorentzEnabled(enabled) {
+  sharedUniforms.uLorentzEnabled.value = enabled ? 1 : 0;
+  lorentzToggle.checked = enabled;
+  vrUI.lorentzRow.hitTarget.userData.setValue(enabled);
+}
+
+function setAberrationEnabled(enabled) {
+  sharedUniforms.uAberrationEnabled.value = enabled ? 1 : 0;
+  aberrationToggle.checked = enabled;
+  vrUI.aberrationRow.hitTarget.userData.setValue(enabled);
+}
+
+betaSlider.addEventListener('input', () => {
+  setBeta(parseFloat(betaSlider.value));
 });
 
 lorentzToggle.addEventListener('change', () => {
-  sharedUniforms.uLorentzEnabled.value = lorentzToggle.checked ? 1 : 0;
+  setLorentzEnabled(lorentzToggle.checked);
 });
 
 aberrationToggle.addEventListener('change', () => {
-  sharedUniforms.uAberrationEnabled.value = aberrationToggle.checked ? 1 : 0;
+  setAberrationEnabled(aberrationToggle.checked);
 });
+
+setBeta(parseFloat(betaSlider.value));
+setLorentzEnabled(lorentzToggle.checked);
+setAberrationEnabled(aberrationToggle.checked);
 
 function moveDesktop(dt) {
   if (renderer.xr.isPresenting) return;
@@ -424,6 +783,123 @@ function moveVR(dt) {
   }
 }
 
+const raycaster = new THREE.Raycaster();
+const tempMatrix = new THREE.Matrix4();
+const tempOrigin = new THREE.Vector3();
+const tempDirection = new THREE.Vector3();
+const controllerGripVisualLength = 8;
+
+function buildController(index, color) {
+  const controller = renderer.xr.getController(index);
+  controller.userData.hovered = null;
+  controller.userData.intersection = null;
+  controller.userData.selecting = false;
+
+  const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, -1)
+  ]);
+  const line = new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 }));
+  line.name = 'ray';
+  line.scale.z = controllerGripVisualLength;
+  controller.add(line);
+  scene.add(controller);
+
+  controller.addEventListener('selectstart', () => {
+    controller.userData.selecting = true;
+    if (controller.userData.hovered) {
+      activateVRUI(controller.userData.hovered, controller.userData.intersection);
+    }
+  });
+
+  controller.addEventListener('selectend', () => {
+    controller.userData.selecting = false;
+  });
+
+  return controller;
+}
+
+const controllers = [
+  buildController(0, 0x8bc2ff),
+  buildController(1, 0xff9edc)
+];
+
+function setVRHoverStates(activeObjects) {
+  for (const obj of vrUI.interactables) {
+    if (typeof obj.userData.setHover === 'function') {
+      obj.userData.setHover(activeObjects.has(obj));
+    }
+  }
+}
+
+function activateVRUI(target, intersection) {
+  if (!target) return;
+
+  switch (target.userData.kind) {
+    case 'beta-minus':
+      setBeta(sharedUniforms.uBeta.value - 0.01);
+      break;
+    case 'beta-plus':
+      setBeta(sharedUniforms.uBeta.value + 0.01);
+      break;
+    case 'lorentz-toggle':
+      setLorentzEnabled(!lorentzToggle.checked);
+      break;
+    case 'aberration-toggle':
+      setAberrationEnabled(!aberrationToggle.checked);
+      break;
+    case 'slider':
+      if (intersection && intersection.uv) {
+        const next = THREE.MathUtils.clamp(intersection.uv.x * 0.95, 0, 0.95);
+        setBeta(next);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+function updateVRUIInteraction() {
+  if (!renderer.xr.isPresenting || !vrUI.panel.visible) {
+    setVRHoverStates(new Set());
+    for (const controller of controllers) {
+      controller.userData.hovered = null;
+      controller.userData.intersection = null;
+      const ray = controller.getObjectByName('ray');
+      if (ray) ray.scale.z = controllerGripVisualLength;
+    }
+    return;
+  }
+
+  const activeObjects = new Set();
+
+  for (const controller of controllers) {
+    tempMatrix.identity().extractRotation(controller.matrixWorld);
+    tempOrigin.setFromMatrixPosition(controller.matrixWorld);
+    tempDirection.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
+    raycaster.set(tempOrigin, tempDirection);
+
+    const hits = raycaster.intersectObjects(vrUI.interactables, false);
+    const hit = hits[0] || null;
+    controller.userData.hovered = hit ? hit.object : null;
+    controller.userData.intersection = hit;
+
+    if (hit) {
+      activeObjects.add(hit.object);
+      if (controller.userData.selecting && hit.object.userData.kind === 'slider') {
+        activateVRUI(hit.object, hit);
+      }
+    }
+
+    const ray = controller.getObjectByName('ray');
+    if (ray) {
+      ray.scale.z = hit ? Math.max(0.15, hit.distance) : controllerGripVisualLength;
+    }
+  }
+
+  setVRHoverStates(activeObjects);
+}
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -432,6 +908,14 @@ window.addEventListener('resize', () => {
 
 renderer.xr.addEventListener('sessionstart', () => {
   if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
+  desktopPanel.classList.add('hidden');
+  vrUI.panel.visible = true;
+});
+
+renderer.xr.addEventListener('sessionend', () => {
+  desktopPanel.classList.remove('hidden');
+  vrUI.panel.visible = false;
+  setVRHoverStates(new Set());
 });
 
 const clock = new THREE.Clock();
@@ -442,6 +926,7 @@ renderer.setAnimationLoop(() => {
 
   moveDesktop(dt);
   moveVR(dt);
+  updateVRUIInteraction();
 
   const inverseQuat = new THREE.Quaternion();
   const localMotionDir = new THREE.Vector3();

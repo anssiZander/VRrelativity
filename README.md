@@ -57,6 +57,8 @@ WebXR immersive VR needs HTTPS, so for the headset the easiest route is to host 
 - Left thumbstick = move / strafe in headset look direction (including up/down if you look up/down)
 - Right thumbstick left-right = turn
 - Right thumbstick up-down = fly up / down
+- In VR, the desktop screen-space UI is hidden and a world-space control panel appears to the right of the observer cube, facing the cube
+- Point at the VR panel with a controller ray and use the trigger to interact with the beta control and the two toggles
 
 ## Notes
 
