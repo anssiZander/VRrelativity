@@ -201,26 +201,6 @@ const stars = new THREE.Points(
 }
 scene.add(stars);
 
-const observerCube = new THREE.Mesh(
-  new THREE.BoxGeometry(3, 3, 3),
-  new THREE.MeshStandardMaterial({ color: 0x3d9cff, roughness: 0.35, metalness: 0.05 })
-);
-observerCube.position.set(0, 0, 0);
-scene.add(observerCube);
-
-const observerWire = new THREE.LineSegments(
-  new THREE.EdgesGeometry(new THREE.BoxGeometry(3.04, 3.04, 3.04)),
-  new THREE.LineBasicMaterial({ color: 0xd8ecff })
-);
-observerCube.add(observerWire);
-
-const observerMarker = new THREE.Mesh(
-  new THREE.SphereGeometry(0.14, 16, 16),
-  new THREE.MeshBasicMaterial({ color: 0xffffff })
-);
-observerMarker.position.set(0, 0, 0);
-scene.add(observerMarker);
-
 const motionSpeed = 8.0;
 const sharedUniforms = {
   uObserverPos: { value: new THREE.Vector3(0, 0, 0) },
@@ -341,6 +321,8 @@ function makeRelativisticMaterial(colorHex) {
 
 function createMovingMesh(kind, colorHex) {
   let geometry;
+  let material = null;
+
   if (kind === 'sphere') {
     geometry = new THREE.SphereGeometry(1.25, 30, 20);
   } else if (kind === 'box') {
@@ -349,25 +331,56 @@ function createMovingMesh(kind, colorHex) {
     geometry = new THREE.CapsuleGeometry(0.8, 1.8, 10, 18);
   }
 
-  const mesh = new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
+  const mesh = new THREE.Mesh(geometry, material || makeRelativisticMaterial(colorHex));
   mesh.frustumCulled = false;
   return mesh;
 }
 
-const movers = [];
-const palette = [0xff8f6b, 0xf2c94c, 0x8be28b, 0x9b8cff, 0x60d5ff, 0xff6ad5];
-const types = ['box', 'sphere', 'capsule', 'sphere', 'box', 'capsule', 'sphere', 'box'];
+const observerBall = new THREE.Mesh(
+  new THREE.SphereGeometry(2.5, 32, 24),
+  new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.5,
+    roughness: 0.75,
+    metalness: 0.0,
+    depthWrite: false
+  })
+);
+observerBall.position.set(0, 0, 0);
+scene.add(observerBall);
 
-for (let i = 0; i < 8; i++) {
-  const mesh = createMovingMesh(types[i % types.length], palette[i % palette.length]);
-  mesh.position.set(-40 - i * 9.5, -1.5 + (i % 4) * 2.2, -8 + (i % 5) * 4.0);
+const movers = [];
+const palette = [0xff8f6b, 0xf2c94c, 0x8be28b, 0x9b8cff, 0x60d5ff, 0xff6ad5, 0xa3ff8f, 0xff9f82];
+const types = ['box', 'sphere', 'capsule', 'sphere', 'box', 'capsule', 'sphere', 'box', 'sphere', 'capsule', 'box', 'sphere'];
+const impactOffsets = [-13, -10, -6, -3, 0, 3, 6, 10, 13, 17, -17, 8];
+const minFlybyRadius = 4.2;
+
+function makeSafeFlybyLane(y, z) {
+  const currentRadius = Math.hypot(y, z);
+  if (currentRadius >= minFlybyRadius) return { y, z };
+  const angle = Math.atan2(y, z);
+  return {
+    y: Math.sin(angle) * minFlybyRadius,
+    z: Math.cos(angle) * minFlybyRadius
+  };
+}
+
+for (let i = 0; i < 12; i++) {
+  const color = palette[i % palette.length];
+  const mesh = createMovingMesh(types[i % types.length], color);
+  const startX = -44 - i * 8.2;
+  let laneY = -2.0 + Math.round(Math.random() * 5) * 1.6;
+  let laneZ = impactOffsets[i % impactOffsets.length] + (Math.random() * 2 - 1);
+  ({ y: laneY, z: laneZ } = makeSafeFlybyLane(laneY, laneZ));
+  mesh.position.set(startX, laneY, laneZ);
   scene.add(mesh);
   movers.push({
     mesh,
-    spinY: (Math.random() - 0.5) * 0.6,
-    spinZ: (Math.random() - 0.5) * 0.45,
-    laneY: mesh.position.y,
-    laneZ: mesh.position.z,
+    spinY: (Math.random() - 0.5) * 0.8,
+    spinZ: (Math.random() - 0.5) * 0.55,
+    laneY,
+    laneZ,
     offset: Math.random() * Math.PI * 2
   });
 }
@@ -696,11 +709,11 @@ vrUI.panel.add(vrUI.aberrationRow.row);
 vrUI.aberrationRow.hitTarget.userData.kind = 'aberration-toggle';
 vrUI.interactables.push(vrUI.aberrationRow.hitTarget);
 
-const vrHelp1 = createTextPlane({ width: 3.0, height: 0.18, text: 'Left stick: move in headset look direction', font: '70px Arial', color: '#c9d9eb', align: 'left' });
+const vrHelp1 = createTextPlane({ width: 3.0, height: 0.18, text: 'Turn your hand/controller palm up to open the menu', font: '70px Arial', color: '#c9d9eb', align: 'left' });
 vrHelp1.position.set(-1.45, -0.78, 0.03);
 vrUI.panel.add(vrHelp1);
 
-const vrHelp2 = createTextPlane({ width: 3.0, height: 0.18, text: 'Right stick: turn + vertical fly', font: '70px Arial', color: '#c9d9eb', align: 'left' });
+const vrHelp2 = createTextPlane({ width: 3.0, height: 0.18, text: 'Left stick: move, right stick: turn + vertical fly', font: '70px Arial', color: '#c9d9eb', align: 'left' });
 vrHelp2.position.set(-1.45, -1.02, 0.03);
 vrUI.panel.add(vrHelp2);
 
@@ -953,6 +966,86 @@ function activateVRUI(target, intersection) {
   }
 }
 
+function getPalmUpPose(source, xrFrame, referenceSpace) {
+  const worldUp = new THREE.Vector3(0, 1, 0);
+
+  if (source.hand) {
+    const wristJoint = source.hand.get('wrist');
+    const indexJoint = source.hand.get('index-finger-metacarpal');
+    const pinkyJoint = source.hand.get('pinky-finger-metacarpal');
+
+    if (wristJoint && indexJoint && pinkyJoint) {
+      const wristPose = xrFrame.getJointPose(wristJoint, referenceSpace);
+      const indexPose = xrFrame.getJointPose(indexJoint, referenceSpace);
+      const pinkyPose = xrFrame.getJointPose(pinkyJoint, referenceSpace);
+      if (wristPose && indexPose && pinkyPose) {
+        const pW = new THREE.Vector3().fromArray(wristPose.transform.position);
+        const pI = new THREE.Vector3().fromArray(indexPose.transform.position);
+        const pP = new THREE.Vector3().fromArray(pinkyPose.transform.position);
+        const v1 = pI.clone().sub(pW);
+        const v2 = pP.clone().sub(pW);
+        const up1 = v1.cross(v2).normalize();
+        const up2 = v2.cross(v1).normalize();
+        const dot = Math.max(up1.dot(worldUp), up2.dot(worldUp));
+        if (dot > 0.6) {
+          return {
+            position: pW,
+            orientation: new THREE.Quaternion().fromArray(wristPose.transform.orientation)
+          };
+        }
+      }
+    }
+  }
+
+  if (source.gripSpace) {
+    const gripPose = xrFrame.getPose(source.gripSpace, referenceSpace);
+    if (gripPose) {
+      const orientation = new THREE.Quaternion().fromArray(gripPose.transform.orientation);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation).normalize();
+      if (up.dot(worldUp) > 0.75) {
+        return {
+          position: new THREE.Vector3().fromArray(gripPose.transform.position),
+          orientation
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function updateVRMenuPose(xrFrame) {
+  const session = renderer.xr.getSession();
+  if (!session || !xrFrame) {
+    vrUI.panel.visible = false;
+    return;
+  }
+
+  const refSpace = renderer.xr.getReferenceSpace();
+  let palmPose = null;
+
+  for (const source of session.inputSources) {
+    const pose = getPalmUpPose(source, xrFrame, refSpace);
+    if (pose) {
+      palmPose = pose;
+      break;
+    }
+  }
+
+  if (!palmPose) {
+    vrUI.panel.visible = false;
+    return;
+  }
+
+  vrUI.panel.position.copy(palmPose.position).add(new THREE.Vector3(0, 0.12, -0.24).applyQuaternion(palmPose.orientation));
+  vrUI.panel.lookAt(camera.getWorldPosition(new THREE.Vector3()));
+  const euler = new THREE.Euler().setFromQuaternion(vrUI.panel.quaternion, 'YXZ');
+  euler.x = 0;
+  euler.z = 0;
+  vrUI.panel.quaternion.setFromEuler(euler);
+  vrUI.panel.visible = true;
+}
+
 function updateVRUIInteraction() {
   if (!renderer.xr.isPresenting || !vrUI.panel.visible) {
     setVRHoverStates(new Set());
@@ -1019,7 +1112,7 @@ window.addEventListener('resize', () => {
 renderer.xr.addEventListener('sessionstart', () => {
   if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
   desktopPanel.classList.add('hidden');
-  vrUI.panel.visible = true;
+  vrUI.panel.visible = false;
 });
 
 renderer.xr.addEventListener('sessionend', () => {
@@ -1030,12 +1123,13 @@ renderer.xr.addEventListener('sessionend', () => {
 
 const clock = new THREE.Clock();
 
-renderer.setAnimationLoop(() => {
+renderer.setAnimationLoop((time, xrFrame) => {
   const dt = Math.min(clock.getDelta(), 0.05);
   const elapsed = clock.elapsedTime;
 
   moveDesktop(dt);
   moveVR(dt);
+  updateVRMenuPose(xrFrame);
   updateVRUIInteraction();
 
   const inverseQuat = new THREE.Quaternion();
@@ -1045,9 +1139,10 @@ renderer.setAnimationLoop(() => {
     const m = item.mesh;
     m.position.x += motionSpeed * dt;
     if (m.position.x > 42) {
-      m.position.x = -46 - Math.random() * 12;
-      item.laneY = -1.5 + Math.floor(Math.random() * 5) * 1.7;
-      item.laneZ = -10 + Math.floor(Math.random() * 6) * 4.0;
+      m.position.x = -48 - Math.random() * 12;
+      item.laneY = -2.0 + Math.round(Math.random() * 5) * 1.6;
+      item.laneZ = impactOffsets[Math.floor(Math.random() * impactOffsets.length)] + (Math.random() * 2 - 1);
+      ({ y: item.laneY, z: item.laneZ } = makeSafeFlybyLane(item.laneY, item.laneZ));
       m.position.y = item.laneY;
       m.position.z = item.laneZ;
     }
@@ -1058,7 +1153,9 @@ renderer.setAnimationLoop(() => {
 
     inverseQuat.copy(m.quaternion).invert();
     localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
-    m.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
+    if (m.material.uniforms) {
+      m.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
+    }
   }
 
   renderer.render(scene, camera);
