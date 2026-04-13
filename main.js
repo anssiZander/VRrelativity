@@ -7,6 +7,36 @@ const betaValue = document.getElementById('betaValue');
 const lorentzToggle = document.getElementById('lorentzToggle');
 const aberrationToggle = document.getElementById('aberrationToggle');
 
+const DEBUG = true;
+const DEBUG_DISABLE_VR_UI = true;
+const DEBUG_DISABLE_CONTROLLERS = true;
+const DEBUG_USE_SIMPLE_MATERIALS = true;
+
+if (DEBUG) {
+  console.warn('DEBUG mode: VR UI disabled, controllers disabled, simple materials active.');
+}
+
+window.__debugReportScene = () => {
+  const cameraPos = new THREE.Vector3();
+  camera.getWorldPosition(cameraPos);
+  console.log('camera position', cameraPos);
+  const meshes = [];
+  scene.traverse((obj) => {
+    if (obj.isMesh) {
+      const dist = obj.getWorldPosition(new THREE.Vector3()).distanceTo(cameraPos);
+      meshes.push({
+        name: obj.name || obj.type,
+        material: obj.material?.type,
+        transparent: !!obj.material?.transparent,
+        opacity: obj.material?.opacity,
+        distance: dist.toFixed(2),
+        visible: obj.visible
+      });
+    }
+  });
+  console.log('scene mesh report', meshes.sort((a, b) => a.distance - b.distance).slice(0, 20));
+};
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070b);
 scene.fog = new THREE.Fog(0x05070b, 45, 140);
@@ -258,6 +288,18 @@ const fragmentShader = `
 `;
 
 function makeRelativisticMaterial(colorHex) {
+  if (DEBUG_USE_SIMPLE_MATERIALS) {
+    return new THREE.MeshStandardMaterial({
+      color: colorHex,
+      roughness: 0.35,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: true,
+      depthTest: true
+    });
+  }
+
   return new THREE.ShaderMaterial({
     uniforms: {
       uObserverPos: sharedUniforms.uObserverPos,
@@ -855,7 +897,7 @@ function buildController(index, color) {
   return controller;
 }
 
-const controllers = [
+const controllers = DEBUG_DISABLE_CONTROLLERS ? [] : [
   buildController(0, 0x8bc2ff),
   buildController(1, 0xff9edc)
 ];
@@ -896,7 +938,7 @@ function activateVRUI(target, intersection) {
 }
 
 function updateVRUIInteraction() {
-  if (!renderer.xr.isPresenting || !vrUI.panel.visible) {
+  if (!renderer.xr.isPresenting || DEBUG_DISABLE_VR_UI || !vrUI.panel.visible) {
     setVRHoverStates(new Set());
     for (const controller of controllers) {
       controller.userData.hovered = null;
