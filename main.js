@@ -274,7 +274,8 @@ function makeRelativisticMaterial(colorHex) {
     fragmentShader,
     side: THREE.DoubleSide,
     transparent: true,
-    depthWrite: false
+    depthWrite: true,
+    depthTest: true
   });
 }
 
@@ -290,6 +291,7 @@ function createMovingMesh(kind, colorHex) {
 
   const mesh = new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
   mesh.frustumCulled = false;
+  mesh.scale.setScalar(1.5);
   return mesh;
 }
 
@@ -395,7 +397,7 @@ function createTextPlane({ width, height, text, font = 'bold 92px Arial', color 
     paddingX: 32
   });
 
-  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false });
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: true, alphaTest: 0.01 });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
 
   mesh.userData.setText = (nextText) => {
@@ -420,7 +422,7 @@ function createVRButton(label, width, height) {
   const group = new THREE.Group();
   const bg = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({ color: baseColor.clone(), transparent: true, opacity: 0.96 })
+    new THREE.MeshBasicMaterial({ color: baseColor.clone(), transparent: true, opacity: 0.96, depthWrite: true })
   );
   group.add(bg);
 
@@ -461,7 +463,7 @@ function createVRToggleRow(label, initialValue) {
 
   const bg = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({ color: 0x101722, transparent: true, opacity: 0.98 })
+    new THREE.MeshBasicMaterial({ color: 0x101722, transparent: true, opacity: 0.98, depthWrite: true })
   );
   row.add(bg);
 
@@ -521,14 +523,14 @@ function createVRSliderRow(initialValue) {
   const trackHeight = 0.14;
   const track = new THREE.Mesh(
     new THREE.PlaneGeometry(trackWidth, trackHeight),
-    new THREE.MeshBasicMaterial({ color: 0x1b2431, transparent: true, opacity: 0.98 })
+    new THREE.MeshBasicMaterial({ color: 0x1b2431, transparent: true, opacity: 0.98, depthWrite: true })
   );
   track.position.set(0, -0.03, 0.01);
   row.add(track);
 
   const fill = new THREE.Mesh(
     new THREE.PlaneGeometry(trackWidth, trackHeight * 0.78),
-    new THREE.MeshBasicMaterial({ color: 0x147aff, transparent: true, opacity: 0.92 })
+    new THREE.MeshBasicMaterial({ color: 0x147aff, transparent: true, opacity: 0.92, depthWrite: true })
   );
   fill.position.set(0, -0.03, 0.015);
   row.add(fill);
@@ -599,7 +601,7 @@ scene.add(vrUI.panel);
 
 const panelBg = new THREE.Mesh(
   new THREE.PlaneGeometry(3.45, 2.55),
-  new THREE.MeshBasicMaterial({ color: 0x0a1018, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+  new THREE.MeshBasicMaterial({ color: 0x0a1018, transparent: true, opacity: 0.96, depthWrite: true, side: THREE.DoubleSide })
 );
 vrUI.panel.add(panelBg);
 
@@ -643,7 +645,7 @@ const vrHelp2 = createTextPlane({ width: 3.0, height: 0.18, text: 'Right stick: 
 vrHelp2.position.set(-1.45, -1.02, 0.03);
 vrUI.panel.add(vrHelp2);
 
-vrUI.panel.position.set(6.2, 1.45, 0);
+vrUI.panel.position.set(8.8, 1.45, -4.0);
 vrUI.panel.lookAt(new THREE.Vector3(0, 1.1, 0));
 
 const keys = new Set();
