@@ -969,49 +969,28 @@ function activateVRUI(target, intersection) {
 function getPalmUpPose(source, xrFrame, referenceSpace) {
   const worldUp = new THREE.Vector3(0, 1, 0);
 
+  let pose = null;
   if (source.hand) {
     const wristJoint = source.hand.get('wrist');
-    const indexJoint = source.hand.get('index-finger-metacarpal');
-    const pinkyJoint = source.hand.get('pinky-finger-metacarpal');
-
-    if (wristJoint && indexJoint && pinkyJoint) {
-      const wristPose = xrFrame.getJointPose(wristJoint, referenceSpace);
-      const indexPose = xrFrame.getJointPose(indexJoint, referenceSpace);
-      const pinkyPose = xrFrame.getJointPose(pinkyJoint, referenceSpace);
-      if (wristPose && indexPose && pinkyPose) {
-        const pW = new THREE.Vector3().fromArray(wristPose.transform.position);
-        const pI = new THREE.Vector3().fromArray(indexPose.transform.position);
-        const pP = new THREE.Vector3().fromArray(pinkyPose.transform.position);
-        const v1 = pI.clone().sub(pW);
-        const v2 = pP.clone().sub(pW);
-        const up1 = v1.cross(v2).normalize();
-        const up2 = v2.cross(v1).normalize();
-        const dot = Math.max(up1.dot(worldUp), up2.dot(worldUp));
-        if (dot > 0.6) {
-          return {
-            position: pW,
-            orientation: new THREE.Quaternion().fromArray(wristPose.transform.orientation)
-          };
-        }
-      }
+    if (wristJoint) {
+      pose = xrFrame.getJointPose(wristJoint, referenceSpace);
     }
   }
 
-  if (source.gripSpace) {
-    const gripPose = xrFrame.getPose(source.gripSpace, referenceSpace);
-    if (gripPose) {
-      const orientation = new THREE.Quaternion().fromArray(gripPose.transform.orientation);
-      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation).normalize();
-      if (up.dot(worldUp) > 0.75) {
-        return {
-          position: new THREE.Vector3().fromArray(gripPose.transform.position),
-          orientation
-        };
-      }
-    }
+  if (!pose && source.gripSpace) {
+    pose = xrFrame.getPose(source.gripSpace, referenceSpace);
   }
 
-  return null;
+  if (!pose) return null;
+
+  const orientation = new THREE.Quaternion().fromArray(pose.transform.orientation);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(orientation).normalize();
+  if (up.dot(worldUp) < 0.45) return null;
+
+  return {
+    position: new THREE.Vector3().fromArray(pose.transform.position),
+    orientation
+  };
 }
 
 function updateVRMenuPose(xrFrame) {
@@ -1037,7 +1016,7 @@ function updateVRMenuPose(xrFrame) {
     return;
   }
 
-  vrUI.panel.position.copy(palmPose.position).add(new THREE.Vector3(0, 0.12, -0.24).applyQuaternion(palmPose.orientation));
+  vrUI.panel.position.copy(palmPose.position).add(new THREE.Vector3(0, 0.15, 0.26).applyQuaternion(palmPose.orientation));
   vrUI.panel.lookAt(camera.getWorldPosition(new THREE.Vector3()));
   const euler = new THREE.Euler().setFromQuaternion(vrUI.panel.quaternion, 'YXZ');
   euler.x = 0;
