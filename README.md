@@ -74,3 +74,6 @@ Additional tweaks in this build:
 - Moving primitives use a procedural checker pattern based on their existing colors.
 - Box primitives now use `3 x 3 x 3` segmentation.
 - Capsule primitives now have more vertical subdivisions.
+
+
+Update v8: controller rays are now hidden until a real tracked-pointer controller pose is available, and the ray starts slightly in front of the controller to avoid near-plane artifacts.

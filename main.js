@@ -112,12 +112,73 @@ const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
 dirLight.position.set(8, 12, 6);
 scene.add(dirLight);
 
-const grid = new THREE.GridHelper(160, 80, 0x446688, 0x223344);
-grid.position.y = -4;
-scene.add(grid);
+function makeFloorGridTexture() {
+  const size = 1024;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#0f131b';
+  ctx.fillRect(0, 0, size, size);
+
+  const minor = size / 20;
+  const major = size / 5;
+
+  for (let i = 0; i <= 20; i++) {
+    const x = Math.round(i * minor);
+    const isMajor = i % 4 === 0;
+    ctx.strokeStyle = isMajor ? 'rgba(88, 132, 190, 0.95)' : 'rgba(38, 62, 96, 0.9)';
+    ctx.lineWidth = isMajor ? 4 : 2;
+
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, size);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(0, x);
+    ctx.lineTo(size, x);
+    ctx.stroke();
+  }
+
+  const center = size * 0.5;
+  ctx.strokeStyle = 'rgba(170, 215, 255, 0.95)';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(center, 0);
+  ctx.lineTo(center, size);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, center);
+  ctx.lineTo(size, center);
+  ctx.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(8, 8);
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+const floorTexture = makeFloorGridTexture();
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(160, 160, 1, 1),
+  new THREE.MeshBasicMaterial({
+    map: floorTexture,
+    transparent: false,
+    toneMapped: false,
+    side: THREE.DoubleSide
+  })
+);
+floor.rotation.x = -Math.PI * 0.5;
+floor.position.y = -4;
+scene.add(floor);
 
 const axes = new THREE.AxesHelper(4);
-axes.position.set(0, -3.99, 0);
+axes.position.set(0, -3.98, 0);
 scene.add(axes);
 
 const stars = new THREE.Points(
@@ -232,6 +293,7 @@ const vertexShader = `
 
 const fragmentShader = `
   uniform vec3 uColor;
+  uniform float uOpacity;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPos;
   varying vec2 vUv;
@@ -252,7 +314,7 @@ const fragmentShader = `
     vec3 checkerColor = mix(baseA, baseB, checker);
 
     vec3 color = checkerColor * (ambient + 0.85 * diff1 + 0.35 * diff2) + 0.22 * fresnel;
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(color, uOpacity);
   }
 `;
 
@@ -266,11 +328,14 @@ function makeRelativisticMaterial(colorHex) {
       uSpeed: sharedUniforms.uSpeed,
       uLorentzEnabled: sharedUniforms.uLorentzEnabled,
       uAberrationEnabled: sharedUniforms.uAberrationEnabled,
-      uColor: { value: new THREE.Color(colorHex) }
+      uColor: { value: new THREE.Color(colorHex) },
+      uOpacity: { value: 0.6 }
     },
     vertexShader,
     fragmentShader,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false
   });
 }
 
@@ -285,7 +350,7 @@ function createMovingMesh(kind, colorHex) {
   }
 
   const mesh = new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
-  mesh.frustumCulled = true;
+  mesh.frustumCulled = false;
   return mesh;
 }
 
@@ -734,9 +799,12 @@ function moveDesktop(dt) {
 
 function getStickAxes(gamepad) {
   if (!gamepad || !gamepad.axes || gamepad.axes.length < 2) return { x: 0, y: 0 };
+  // Quest thumbsticks typically occupy axes [2,3], but some browsers expose
+  // only the active pair. Prefer [2,3] when present so x/y stay consistent.
+  const baseIndex = gamepad.axes.length >= 4 ? 2 : gamepad.axes.length - 2;
   return {
-    x: gamepad.axes[gamepad.axes.length - 2] || 0,
-    y: gamepad.axes[gamepad.axes.length - 1] || 0
+    x: gamepad.axes[baseIndex] || 0,
+    y: gamepad.axes[baseIndex + 1] || 0
   };
 }
 
@@ -760,11 +828,18 @@ function moveVR(dt) {
       leftY = applyDeadzone(stick.y);
     } else if (source.handedness === 'right') {
       rightX = applyDeadzone(stick.x);
-      rightY = applyDeadzone(stick.y);
+      rightY = stick.y || 0;
     }
   }
 
-  if (Math.abs(rightX) > 0) player.rotation.y -= rightX * 1.8 * dt;
+  if (Math.abs(rightX) > 0.15) player.rotation.y -= rightX * 1.8 * dt;
+
+  // Use a stronger threshold for vertical flying so it does not trigger during
+  // ordinary left/right turning motions. Require a clear up/down intent.
+  let verticalIntent = 0;
+  if (Math.abs(rightY) > 0.6 && Math.abs(rightY) > Math.abs(rightX) + 0.18) {
+    verticalIntent = Math.sign(rightY) * ((Math.abs(rightY) - 0.6) / 0.4);
+  }
 
   const cameraWorldQuat = new THREE.Quaternion();
   camera.getWorldQuaternion(cameraWorldQuat);
@@ -775,7 +850,7 @@ function moveVR(dt) {
   const move = new THREE.Vector3();
   move.addScaledVector(headRight, leftX);
   move.addScaledVector(headForward, -leftY);
-  move.addScaledVector(worldUp, -rightY);
+  move.addScaledVector(worldUp, -verticalIntent);
 
   if (move.lengthSq() > 0) {
     move.normalize().multiplyScalar(4.8 * dt);
@@ -788,22 +863,41 @@ const tempMatrix = new THREE.Matrix4();
 const tempOrigin = new THREE.Vector3();
 const tempDirection = new THREE.Vector3();
 const controllerGripVisualLength = 8;
+const rayStartOffset = 0.06;
 
 function buildController(index, color) {
   const controller = renderer.xr.getController(index);
   controller.userData.hovered = null;
   controller.userData.intersection = null;
   controller.userData.selecting = false;
+  controller.userData.connected = false;
+  controller.userData.targetRayMode = null;
 
   const lineGeometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, -rayStartOffset),
     new THREE.Vector3(0, 0, -1)
   ]);
   const line = new THREE.Line(lineGeometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 }));
   line.name = 'ray';
+  line.visible = false;
   line.scale.z = controllerGripVisualLength;
   controller.add(line);
-  scene.add(controller);
+  player.add(controller);
+
+  controller.addEventListener('connected', (event) => {
+    controller.userData.connected = true;
+    controller.userData.targetRayMode = event.data?.targetRayMode || null;
+  });
+
+  controller.addEventListener('disconnected', () => {
+    controller.userData.connected = false;
+    controller.userData.targetRayMode = null;
+    controller.userData.hovered = null;
+    controller.userData.intersection = null;
+    controller.userData.selecting = false;
+    const ray = controller.getObjectByName('ray');
+    if (ray) ray.visible = false;
+  });
 
   controller.addEventListener('selectstart', () => {
     controller.userData.selecting = true;
@@ -866,7 +960,10 @@ function updateVRUIInteraction() {
       controller.userData.hovered = null;
       controller.userData.intersection = null;
       const ray = controller.getObjectByName('ray');
-      if (ray) ray.scale.z = controllerGripVisualLength;
+      if (ray) {
+        ray.visible = false;
+        ray.scale.z = controllerGripVisualLength;
+      }
     }
     return;
   }
@@ -874,6 +971,19 @@ function updateVRUIInteraction() {
   const activeObjects = new Set();
 
   for (const controller of controllers) {
+    const ray = controller.getObjectByName('ray');
+
+    const canPoint = controller.userData.connected && controller.userData.targetRayMode === 'tracked-pointer';
+    if (!canPoint) {
+      controller.userData.hovered = null;
+      controller.userData.intersection = null;
+      if (ray) {
+        ray.visible = false;
+        ray.scale.z = controllerGripVisualLength;
+      }
+      continue;
+    }
+
     tempMatrix.identity().extractRotation(controller.matrixWorld);
     tempOrigin.setFromMatrixPosition(controller.matrixWorld);
     tempDirection.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
@@ -891,8 +1001,8 @@ function updateVRUIInteraction() {
       }
     }
 
-    const ray = controller.getObjectByName('ray');
     if (ray) {
+      ray.visible = true;
       ray.scale.z = hit ? Math.max(0.15, hit.distance) : controllerGripVisualLength;
     }
   }
