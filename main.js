@@ -717,8 +717,8 @@ const vrHelp2 = createTextPlane({ width: 3.0, height: 0.18, text: 'Left stick: m
 vrHelp2.position.set(-1.45, -1.02, 0.03);
 vrUI.panel.add(vrHelp2);
 
-vrUI.panel.position.set(6.2, 1.45, 0);
-vrUI.panel.lookAt(new THREE.Vector3(0, 1.1, 0));
+vrUI.panel.position.set(0, 1.2, -3.2);
+vrUI.panel.lookAt(new THREE.Vector3(0, 1.2, 0));
 
 const keys = new Set();
 let pointerLocked = false;
@@ -977,69 +977,19 @@ function activateVRUI(target, intersection) {
   }
 }
 
-function getPoseFromInput(source, xrFrame, referenceSpace) {
-  if (source.hand) {
-    const wristJoint = source.hand.get('wrist');
-    if (wristJoint) {
-      const jointPose = xrFrame.getJointPose(wristJoint, referenceSpace);
-      if (jointPose) return jointPose;
-    }
-  }
-
-  if (source.gripSpace) {
-    return xrFrame.getPose(source.gripSpace, referenceSpace);
-  }
-
-  if (source.targetRaySpace) {
-    return xrFrame.getPose(source.targetRaySpace, referenceSpace);
-  }
-
-  return null;
-}
-
 function updateVRMenuPose(xrFrame) {
-  const session = renderer.xr.getSession();
-  if (!session) {
+  if (!renderer.xr.isPresenting) {
     vrUI.panel.visible = false;
     return;
   }
 
-  const refSpace = renderer.xr.getReferenceSpace();
-  let useSource = null;
-
-  for (const source of session.inputSources) {
-    if (source.handedness === 'right') {
-      useSource = source;
-      break;
-    }
-  }
-  if (!useSource) useSource = session.inputSources[0] || null;
-
-  let pose = null;
-  if (useSource) pose = getPoseFromInput(useSource, xrFrame, refSpace);
-
-  const panelPosition = new THREE.Vector3();
-  const panelOrientation = new THREE.Quaternion();
-
-  if (pose) {
-    panelPosition.fromArray(pose.transform.position);
-    panelOrientation.fromArray(pose.transform.orientation);
-    panelPosition.add(new THREE.Vector3(0, 0.16, -0.28).applyQuaternion(panelOrientation));
-  } else {
-    panelPosition.copy(camera.getWorldPosition(new THREE.Vector3()));
-    const cameraQuat = camera.getWorldQuaternion(new THREE.Quaternion());
-    panelOrientation.copy(cameraQuat);
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraQuat).normalize();
-    panelPosition.addScaledVector(forward, -0.75).add(new THREE.Vector3(0, 0.18, 0));
-  }
-
-  vrUI.panel.position.copy(panelPosition);
-  vrUI.panel.lookAt(camera.getWorldPosition(new THREE.Vector3()));
+  vrUI.panel.position.set(0, 1.2, -3.2);
+  vrUI.panel.lookAt(new THREE.Vector3(0, 1.2, 0));
   const euler = new THREE.Euler().setFromQuaternion(vrUI.panel.quaternion, 'YXZ');
   euler.x = 0;
   euler.z = 0;
   vrUI.panel.quaternion.setFromEuler(euler);
-  vrUI.panel.visible = renderer.xr.isPresenting;
+  vrUI.panel.visible = true;
 }
 
 function updateVRUIInteraction() {
