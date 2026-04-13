@@ -3,7 +3,8 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 const container = document.getElementById('app');
 const betaSlider = document.getElementById('betaSlider');
 const betaValue = document.getElementById('betaValue');
-const effectToggle = document.getElementById('effectToggle');
+const lorentzToggle = document.getElementById('lorentzToggle');
+const aberrationToggle = document.getElementById('aberrationToggle');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070b);
@@ -160,16 +161,20 @@ scene.add(observerMarker);
 const motionSpeed = 8.0;
 const sharedUniforms = {
   uObserverPos: { value: new THREE.Vector3(0, 0, 0) },
+  uWorldMotionDir: { value: new THREE.Vector3(1, 0, 0) },
   uBeta: { value: parseFloat(betaSlider.value) },
   uSpeed: { value: motionSpeed },
-  uEffectEnabled: { value: effectToggle.checked ? 1 : 0 }
+  uLorentzEnabled: { value: lorentzToggle.checked ? 1 : 0 },
+  uAberrationEnabled: { value: aberrationToggle.checked ? 1 : 0 }
 };
 
 const vertexShader = `
   uniform vec3 uObserverPos;
+  uniform vec3 uWorldMotionDir;
   uniform float uBeta;
   uniform float uSpeed;
-  uniform int uEffectEnabled;
+  uniform int uLorentzEnabled;
+  uniform int uAberrationEnabled;
 
   varying vec3 vWorldNormal;
   varying vec3 vWorldPos;
@@ -177,20 +182,36 @@ const vertexShader = `
 
   void main() {
     vec3 localPos = position;
+    vec3 localNormal = normal;
     vUv = uv;
 
-    if (uEffectEnabled == 1 && uBeta > 0.0001) {
+    // Motion is defined in world space. To apply Lorentz contraction correctly
+    // to a rotated mesh, pull the world motion direction back into the mesh's
+    // local space first, then contract along that local axis, and only then
+    // rotate/translate the vertex with modelMatrix.
+    vec3 worldDir = normalize(uWorldMotionDir);
+    mat3 model3 = mat3(modelMatrix);
+    vec3 localMotionDir = normalize(transpose(model3) * worldDir);
+
+    if (uLorentzEnabled == 1 && uBeta > 0.0001) {
       float contraction = sqrt(max(1.0 - uBeta * uBeta, 0.0001));
-      localPos.x *= contraction;
+
+      vec3 posParallel = localMotionDir * dot(localPos, localMotionDir);
+      vec3 posPerp = localPos - posParallel;
+      localPos = posPerp + contraction * posParallel;
+
+      vec3 normalParallel = localMotionDir * dot(localNormal, localMotionDir);
+      vec3 normalPerp = localNormal - normalParallel;
+      localNormal = normalize(normalPerp + normalParallel / contraction);
     }
 
     vec4 worldPos4 = modelMatrix * vec4(localPos, 1.0);
     vec3 worldPos = worldPos4.xyz;
 
-    if (uEffectEnabled == 1 && uBeta > 0.0001) {
-      vec3 dir = vec3(1.0, 0.0, 0.0);
+    // Aberration/retarded-position shift is applied last in world space.
+    if (uAberrationEnabled == 1 && uBeta > 0.0001) {
       vec3 rel = worldPos - uObserverPos;
-      float x0 = dot(rel, dir);
+      float x0 = dot(rel, worldDir);
       float r2 = max(dot(rel, rel), 0.0001);
       float rPerp2 = max(r2 - x0 * x0, 0.0);
 
@@ -201,11 +222,11 @@ const vertexShader = `
       float sqrtTerm = sqrt(max(disc, 0.0));
       float tr = (-x0 * v + sqrtTerm) / A;
 
-      worldPos += dir * v * tr;
+      worldPos += worldDir * v * tr;
     }
 
     vWorldPos = worldPos;
-    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    vWorldNormal = normalize(model3 * localNormal);
 
     gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
   }
@@ -241,9 +262,11 @@ function makeRelativisticMaterial(colorHex) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uObserverPos: sharedUniforms.uObserverPos,
+      uWorldMotionDir: sharedUniforms.uWorldMotionDir,
       uBeta: sharedUniforms.uBeta,
       uSpeed: sharedUniforms.uSpeed,
-      uEffectEnabled: sharedUniforms.uEffectEnabled,
+      uLorentzEnabled: sharedUniforms.uLorentzEnabled,
+      uAberrationEnabled: sharedUniforms.uAberrationEnabled,
       uColor: { value: new THREE.Color(colorHex) }
     },
     vertexShader,
@@ -257,9 +280,9 @@ function createMovingMesh(kind, colorHex) {
   if (kind === 'sphere') {
     geometry = new THREE.SphereGeometry(1.25, 30, 20);
   } else if (kind === 'box') {
-    geometry = new THREE.BoxGeometry(2.1, 2.1, 2.1);
+    geometry = new THREE.BoxGeometry(2.1, 2.1, 2.1, 3, 3, 3);
   } else {
-    geometry = new THREE.CapsuleGeometry(0.8, 1.8, 6, 14);
+    geometry = new THREE.CapsuleGeometry(0.8, 1.8, 10, 18);
   }
 
   const mesh = new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
@@ -314,8 +337,12 @@ betaSlider.addEventListener('input', () => {
   betaValue.textContent = v.toFixed(2);
 });
 
-effectToggle.addEventListener('change', () => {
-  sharedUniforms.uEffectEnabled.value = effectToggle.checked ? 1 : 0;
+lorentzToggle.addEventListener('change', () => {
+  sharedUniforms.uLorentzEnabled.value = lorentzToggle.checked ? 1 : 0;
+});
+
+aberrationToggle.addEventListener('change', () => {
+  sharedUniforms.uAberrationEnabled.value = aberrationToggle.checked ? 1 : 0;
 });
 
 function moveDesktop(dt) {

@@ -24,7 +24,7 @@
         top: 12px;
         left: 12px;
         z-index: 10;
-        width: min(360px, calc(100vw - 24px));
+        width: min(380px, calc(100vw - 24px));
         padding: 12px 14px;
         border-radius: 12px;
         background: rgba(8, 12, 18, 0.78);
@@ -52,6 +52,11 @@
 
       input[type="range"] {
         width: 100%;
+      }
+
+      .toggle-stack {
+        display: grid;
+        gap: 8px;
       }
 
       .small {
@@ -87,10 +92,14 @@
         <input id="betaSlider" type="range" min="0" max="0.95" step="0.01" value="0.80" />
       </div>
 
-      <div class="row">
+      <div class="row toggle-stack">
         <label>
-          <input id="effectToggle" type="checkbox" checked />
-          Enable relativistic distortion
+          <input id="lorentzToggle" type="checkbox" checked />
+          Enable Lorentz transform (length contraction)
+        </label>
+        <label>
+          <input id="aberrationToggle" type="checkbox" checked />
+          Enable aberration (retarded position)
         </label>
       </div>
 

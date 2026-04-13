@@ -62,9 +62,13 @@ WebXR immersive VR needs HTTPS, so for the headset the easiest route is to host 
 
 - The center blue cube marks the observer position at the origin.
 - Relativistic distortion is computed relative to that fixed observer position, not your current camera location.
-- The checkbox turns the effect on/off.
 - The beta slider changes `v/c`.
+- There are now two separate toggles:
+  - **Lorentz transform** = length contraction only
+  - **Aberration** = retarded-position shift only
 
 Additional tweaks in this build:
-- Moving relativistic meshes are set to render double-sided and frustum culling is disabled for them.
+- Moving relativistic meshes are double-sided and frustum culling is disabled for them.
 - Moving primitives use a procedural checker pattern based on their existing colors.
+- Box primitives now use `3 x 3 x 3` segmentation.
+- Capsule primitives now have more vertical subdivisions.
