@@ -6,6 +6,7 @@ const betaSlider = document.getElementById('betaSlider');
 const betaValue = document.getElementById('betaValue');
 const lorentzToggle = document.getElementById('lorentzToggle');
 const aberrationToggle = document.getElementById('aberrationToggle');
+const sceneToggleButton = document.getElementById('sceneToggle');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070b);
@@ -211,6 +212,11 @@ const sharedUniforms = {
   uAberrationEnabled: { value: aberrationToggle.checked ? 1 : 0 }
 };
 
+const sceneLabels = ['Moving objects', 'Observer-relative world'];
+let sceneMode = 0;
+let panelTitle = null;
+const playerVelocity = new THREE.Vector3();
+
 const vertexShader = `
   uniform vec3 uObserverPos;
   uniform vec3 uWorldMotionDir;
@@ -373,10 +379,12 @@ for (let i = 0; i < 12; i++) {
   let laneY = -2.0 + Math.round(Math.random() * 5) * 1.6;
   let laneZ = impactOffsets[i % impactOffsets.length] + (Math.random() * 2 - 1);
   ({ y: laneY, z: laneZ } = makeSafeFlybyLane(laneY, laneZ));
-  mesh.position.set(startX, laneY, laneZ);
+  const initialPos = new THREE.Vector3(startX, laneY, laneZ);
+  mesh.position.copy(initialPos);
   scene.add(mesh);
   movers.push({
     mesh,
+    initialPos,
     spinY: (Math.random() - 0.5) * 0.8,
     spinZ: (Math.random() - 0.5) * 0.55,
     laneY,
@@ -688,9 +696,10 @@ const panelOutline = new THREE.LineLoop(
 );
 vrUI.panel.add(panelOutline);
 
-const panelTitle = createTextPlane({ width: 3.1, height: 0.28, text: 'Relativistic observer VR demo', font: 'bold 86px Arial', align: 'left' });
+panelTitle = createTextPlane({ width: 3.1, height: 0.28, text: 'Relativistic observer VR demo', font: 'bold 86px Arial', align: 'left' });
 panelTitle.position.set(-1.45, 0.94, 0.03);
 vrUI.panel.add(panelTitle);
+setSceneMode(sceneMode);
 
 vrUI.sliderRow = createVRSliderRow(parseFloat(betaSlider.value));
 vrUI.sliderRow.row.position.set(0, 0.52, 0.03);
@@ -716,6 +725,12 @@ vrUI.panel.add(vrHelp1);
 const vrHelp2 = createTextPlane({ width: 3.3, height: 0.16, text: 'Left stick: move, right stick: turn + vertical fly', font: '68px Arial', color: '#c9d9eb', align: 'left' });
 vrHelp2.position.set(-1.45, -0.92, 0.03);
 vrUI.panel.add(vrHelp2);
+
+const vrSceneButton = createVRButton('Switch scene', 2.7, 0.36);
+vrSceneButton.group.position.set(0, -1.25, 0.03);
+vrUI.panel.add(vrSceneButton.group);
+vrSceneButton.hitTarget.userData.kind = 'scene-toggle';
+vrUI.interactables.push(vrSceneButton.hitTarget);
 
 vrUI.panel.position.set(0, 1.3, -2.6);
 vrUI.panel.lookAt(new THREE.Vector3(0, 1.2, 0));
@@ -744,7 +759,7 @@ document.addEventListener('keydown', (e) => keys.add(e.code));
 document.addEventListener('keyup', (e) => keys.delete(e.code));
 
 function setBeta(nextValue) {
-  const v = THREE.MathUtils.clamp(nextValue, 0, 0.95);
+  const v = THREE.MathUtils.clamp(nextValue, 0, 0.99);
   sharedUniforms.uBeta.value = v;
   betaSlider.value = v.toFixed(2);
   betaValue.textContent = v.toFixed(2);
@@ -763,6 +778,40 @@ function setAberrationEnabled(enabled) {
   vrUI.aberrationRow.hitTarget.userData.setValue(enabled);
 }
 
+function setSceneMode(mode) {
+  sceneMode = mode;
+  if (sceneToggleButton) {
+    sceneToggleButton.textContent = sceneMode === 0 ? 'Switch to observer-relative scene' : 'Switch to moving-object scene';
+  }
+  if (panelTitle) {
+    panelTitle.userData.setText(`Relativistic ${sceneLabels[sceneMode]}`);
+  }
+}
+
+function toggleSceneMode() {
+  setSceneMode(1 - sceneMode);
+  resetSceneObjects();
+}
+
+function updateRelativisticUniforms() {
+  camera.getWorldPosition(sharedUniforms.uObserverPos.value);
+  if (sceneMode === 0) {
+    sharedUniforms.uWorldMotionDir.value.set(1, 0, 0);
+  } else if (playerVelocity.lengthSq() > 1e-6) {
+    sharedUniforms.uWorldMotionDir.value.copy(playerVelocity).normalize().negate();
+  } else {
+    sharedUniforms.uWorldMotionDir.value.set(1, 0, 0);
+  }
+}
+
+function resetSceneObjects() {
+  for (const item of movers) {
+    item.mesh.position.copy(item.initialPos);
+    item.laneY = item.initialPos.y;
+    item.laneZ = item.initialPos.z;
+  }
+}
+
 betaSlider.addEventListener('input', () => {
   setBeta(parseFloat(betaSlider.value));
 });
@@ -775,9 +824,14 @@ aberrationToggle.addEventListener('change', () => {
   setAberrationEnabled(aberrationToggle.checked);
 });
 
+if (sceneToggleButton) {
+  sceneToggleButton.addEventListener('click', toggleSceneMode);
+}
+
 setBeta(parseFloat(betaSlider.value));
 setLorentzEnabled(lorentzToggle.checked);
 setAberrationEnabled(aberrationToggle.checked);
+setSceneMode(sceneMode);
 
 function moveDesktop(dt) {
   if (renderer.xr.isPresenting) return;
@@ -807,6 +861,13 @@ function moveDesktop(dt) {
   if (move.lengthSq() > 0) {
     move.normalize().multiplyScalar(speed * dt);
     player.position.add(move);
+    if (dt > 1e-6) {
+      playerVelocity.copy(move).divideScalar(dt);
+    } else {
+      playerVelocity.set(0, 0, 0);
+    }
+  } else {
+    playerVelocity.set(0, 0, 0);
   }
 }
 
@@ -868,6 +929,13 @@ function moveVR(dt) {
   if (move.lengthSq() > 0) {
     move.normalize().multiplyScalar(4.8 * dt);
     player.position.add(move);
+    if (dt > 1e-6) {
+      playerVelocity.copy(move).divideScalar(dt);
+    } else {
+      playerVelocity.set(0, 0, 0);
+    }
+  } else {
+    playerVelocity.set(0, 0, 0);
   }
 }
 
@@ -972,6 +1040,9 @@ function activateVRUI(target, intersection) {
         setBeta(next);
       }
       break;
+    case 'scene-toggle':
+      toggleSceneMode();
+      break;
     default:
       break;
   }
@@ -1075,6 +1146,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
 
   moveDesktop(dt);
   moveVR(dt);
+  updateRelativisticUniforms();
   updateVRMenuPose(xrFrame);
   updateVRUIInteraction();
 
@@ -1083,17 +1155,20 @@ renderer.setAnimationLoop((time, xrFrame) => {
 
   for (const item of movers) {
     const m = item.mesh;
-    m.position.x += motionSpeed * dt;
-    if (m.position.x > 42) {
-      m.position.x = -48 - Math.random() * 12;
-      item.laneY = -2.0 + Math.round(Math.random() * 5) * 1.6;
-      item.laneZ = impactOffsets[Math.floor(Math.random() * impactOffsets.length)] + (Math.random() * 2 - 1);
-      ({ y: item.laneY, z: item.laneZ } = makeSafeFlybyLane(item.laneY, item.laneZ));
-      m.position.y = item.laneY;
-      m.position.z = item.laneZ;
+    if (sceneMode === 0) {
+      m.position.x += motionSpeed * dt;
+      if (m.position.x > 42) {
+        m.position.x = -48 - Math.random() * 12;
+        item.laneY = -2.0 + Math.round(Math.random() * 5) * 1.6;
+        item.laneZ = impactOffsets[Math.floor(Math.random() * impactOffsets.length)] + (Math.random() * 2 - 1);
+        ({ y: item.laneY, z: item.laneZ } = makeSafeFlybyLane(item.laneY, item.laneZ));
+        m.position.y = item.laneY;
+        m.position.z = item.laneZ;
+      }
+    } else {
+      m.position.copy(item.initialPos);
     }
 
-    m.position.y = item.laneY + 0.35 * Math.sin(elapsed * 0.9 + item.offset);
     m.rotation.y += item.spinY * dt;
     m.rotation.z += item.spinZ * dt;
 
