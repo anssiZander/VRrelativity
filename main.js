@@ -7,6 +7,7 @@ const betaValue = document.getElementById('betaValue');
 const lorentzToggle = document.getElementById('lorentzToggle');
 const aberrationToggle = document.getElementById('aberrationToggle');
 const sceneToggleButton = document.getElementById('sceneToggle');
+const sceneEyeButton = document.getElementById('sceneEyeButton');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070b);
@@ -145,10 +146,11 @@ const sharedUniforms = {
   uBeta: { value: parseFloat(betaSlider.value) },
   uSpeed: { value: motionSpeed },
   uLorentzEnabled: { value: lorentzToggle.checked ? 1 : 0 },
-  uAberrationEnabled: { value: aberrationToggle.checked ? 1 : 0 }
+  uAberrationEnabled: { value: aberrationToggle.checked ? 1 : 0 },
+  uCheckerEnabled: { value: 1 }
 };
 
-const sceneLabels = ['Moving objects', 'Moving cube grid'];
+const sceneLabels = ['Moving objects', 'Moving cube grid', 'Eye-relative objects'];
 let sceneMode = 0;
 let panelTitle = null;
 const playerVelocity = new THREE.Vector3();
@@ -216,6 +218,7 @@ const vertexShader = `
 const fragmentShader = `
   uniform vec3 uColor;
   uniform float uOpacity;
+  uniform int uCheckerEnabled;
   varying vec3 vWorldNormal;
   varying vec3 vWorldPos;
   varying vec2 vUv;
@@ -234,8 +237,9 @@ const fragmentShader = `
     vec3 baseA = min(uColor * 1.08, vec3(1.0));
     vec3 baseB = uColor * 0.55;
     vec3 checkerColor = mix(baseA, baseB, checker);
+    vec3 displayColor = uCheckerEnabled == 1 ? checkerColor : baseA;
 
-    vec3 color = checkerColor * (ambient + 0.85 * diff1 + 0.35 * diff2) + 0.22 * fresnel;
+    vec3 color = displayColor * (ambient + 0.85 * diff1 + 0.35 * diff2) + 0.22 * fresnel;
     gl_FragColor = vec4(color, uOpacity);
   }
 `;
@@ -250,6 +254,7 @@ function makeRelativisticMaterial(colorHex) {
       uSpeed: sharedUniforms.uSpeed,
       uLorentzEnabled: sharedUniforms.uLorentzEnabled,
       uAberrationEnabled: sharedUniforms.uAberrationEnabled,
+      uCheckerEnabled: sharedUniforms.uCheckerEnabled,
       uColor: { value: new THREE.Color(colorHex) },
       uOpacity: { value: 0.6 }
     },
@@ -337,8 +342,8 @@ for (let i = 0; i < 12; i++) {
   });
 }
 
-const gridSize = 64;
-const gridSpacing = 2.2;
+const gridSize = 32;
+const gridSpacing = 3.3;
 const gridOffset = (gridSize - 1) * 0.5 * gridSpacing;
 const gridPlaneStartX = -48;
 for (let iy = 0; iy < gridSize; iy++) {
@@ -693,11 +698,17 @@ const vrHelp2 = createTextPlane({ width: 3.3, height: 0.16, text: 'Left stick: m
 vrHelp2.position.set(-1.45, -0.92, 0.03);
 vrUI.panel.add(vrHelp2);
 
-const vrSceneButton = createVRButton('Switch scene', 2.7, 0.36);
-vrSceneButton.group.position.set(0, -1.25, 0.03);
-vrUI.panel.add(vrSceneButton.group);
-vrSceneButton.hitTarget.userData.kind = 'scene-toggle';
-vrUI.interactables.push(vrSceneButton.hitTarget);
+const vrSceneButtonGrid = createVRButton('Cube grid scene', 2.7, 0.36);
+vrSceneButtonGrid.group.position.set(0, -1.25, 0.03);
+vrUI.panel.add(vrSceneButtonGrid.group);
+vrSceneButtonGrid.hitTarget.userData.kind = 'scene-grid';
+vrUI.interactables.push(vrSceneButtonGrid.hitTarget);
+
+const vrSceneButtonEye = createVRButton('Eye-relative scene', 2.7, 0.36);
+vrSceneButtonEye.group.position.set(0, -1.72, 0.03);
+vrUI.panel.add(vrSceneButtonEye.group);
+vrSceneButtonEye.hitTarget.userData.kind = 'scene-eye';
+vrUI.interactables.push(vrSceneButtonEye.hitTarget);
 
 vrUI.panel.position.set(0, 1.3, -2.6);
 vrUI.panel.lookAt(new THREE.Vector3(0, 1.2, 0));
@@ -747,7 +758,7 @@ function setAberrationEnabled(enabled) {
 
 function updateSceneVisibility() {
   for (const item of movers) {
-    item.mesh.visible = sceneMode === 0;
+    item.mesh.visible = sceneMode !== 1;
   }
   for (const item of gridCubes) {
     item.mesh.visible = sceneMode === 1;
@@ -757,21 +768,48 @@ function updateSceneVisibility() {
 function setSceneMode(mode) {
   sceneMode = mode;
   if (sceneToggleButton) {
-    sceneToggleButton.textContent = sceneMode === 0 ? 'Switch to cube grid scene' : 'Switch to moving-object scene';
+    sceneToggleButton.textContent = sceneMode === 1 ? 'Back to moving-object scene' : 'Switch to cube grid scene';
+  }
+  if (sceneEyeButton) {
+    sceneEyeButton.textContent = sceneMode === 2 ? 'Back to moving-object scene' : 'Switch to eye-relative scene';
   }
   if (panelTitle) {
     panelTitle.userData.setText(`Relativistic ${sceneLabels[sceneMode]}`);
   }
+  sharedUniforms.uCheckerEnabled.value = sceneMode === 1 ? 0 : 1;
   updateSceneVisibility();
 }
 
-function toggleSceneMode() {
-  setSceneMode(1 - sceneMode);
-  resetSceneObjects();
+function setGridScene() {
+  setSceneMode(1);
+}
+
+function setEyeRelativeScene() {
+  setSceneMode(2);
+}
+
+function toggleGridScene() {
+  if (sceneMode === 1) {
+    setSceneMode(0);
+  } else {
+    setSceneMode(1);
+  }
+}
+
+function toggleEyeScene() {
+  if (sceneMode === 2) {
+    setSceneMode(0);
+  } else {
+    setSceneMode(2);
+  }
 }
 
 function updateRelativisticUniforms() {
-  camera.getWorldPosition(sharedUniforms.uObserverPos.value);
+  if (sceneMode === 2) {
+    camera.getWorldPosition(sharedUniforms.uObserverPos.value);
+  } else {
+    sharedUniforms.uObserverPos.value.set(0, 0, 0);
+  }
   sharedUniforms.uWorldMotionDir.value.set(1, 0, 0);
 }
 
@@ -799,7 +837,10 @@ aberrationToggle.addEventListener('change', () => {
 });
 
 if (sceneToggleButton) {
-  sceneToggleButton.addEventListener('click', toggleSceneMode);
+  sceneToggleButton.addEventListener('click', toggleGridScene);
+}
+if (sceneEyeButton) {
+  sceneEyeButton.addEventListener('click', toggleEyeScene);
 }
 
 setBeta(parseFloat(betaSlider.value));
@@ -1015,7 +1056,13 @@ function activateVRUI(target, intersection) {
       }
       break;
     case 'scene-toggle':
-      toggleSceneMode();
+      toggleGridScene();
+      break;
+    case 'scene-grid':
+      toggleGridScene();
+      break;
+    case 'scene-eye':
+      toggleEyeScene();
       break;
     default:
       break;
@@ -1127,7 +1174,22 @@ renderer.setAnimationLoop((time, xrFrame) => {
   const inverseQuat = new THREE.Quaternion();
   const localMotionDir = new THREE.Vector3();
 
-  if (sceneMode === 0) {
+  if (sceneMode === 1) {
+    for (const item of gridCubes) {
+      const m = item.mesh;
+      m.position.x += motionSpeed * dt;
+      if (m.position.x > 42) {
+        m.position.copy(item.initialPos);
+      }
+      // no rotation for grid cubes in cube grid scene
+
+      inverseQuat.copy(m.quaternion).invert();
+      localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
+      if (m.material.uniforms) {
+        m.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
+      }
+    }
+  } else {
     for (const item of movers) {
       const m = item.mesh;
       m.position.x += motionSpeed * dt;
@@ -1141,21 +1203,6 @@ renderer.setAnimationLoop((time, xrFrame) => {
       }
       m.rotation.y += item.spinY * dt;
       m.rotation.z += item.spinZ * dt;
-
-      inverseQuat.copy(m.quaternion).invert();
-      localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
-      if (m.material.uniforms) {
-        m.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
-      }
-    }
-  } else {
-    for (const item of gridCubes) {
-      const m = item.mesh;
-      m.position.x += motionSpeed * dt;
-      if (m.position.x > 42) {
-        m.position.copy(item.initialPos);
-      }
-      // no rotation for grid cubes in cube grid scene
 
       inverseQuat.copy(m.quaternion).invert();
       localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
