@@ -113,70 +113,6 @@ const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
 dirLight.position.set(8, 12, 6);
 scene.add(dirLight);
 
-function makeFloorGridTexture() {
-  const size = 1024;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#0f131b';
-  ctx.fillRect(0, 0, size, size);
-
-  const minor = size / 20;
-  const major = size / 5;
-
-  for (let i = 0; i <= 20; i++) {
-    const x = Math.round(i * minor);
-    const isMajor = i % 4 === 0;
-    ctx.strokeStyle = isMajor ? 'rgba(88, 132, 190, 0.95)' : 'rgba(38, 62, 96, 0.9)';
-    ctx.lineWidth = isMajor ? 4 : 2;
-
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, size);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.moveTo(0, x);
-    ctx.lineTo(size, x);
-    ctx.stroke();
-  }
-
-  const center = size * 0.5;
-  ctx.strokeStyle = 'rgba(170, 215, 255, 0.95)';
-  ctx.lineWidth = 5;
-  ctx.beginPath();
-  ctx.moveTo(center, 0);
-  ctx.lineTo(center, size);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(0, center);
-  ctx.lineTo(size, center);
-  ctx.stroke();
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(8, 8);
-  texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-const floorTexture = makeFloorGridTexture();
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(160, 160, 1, 1),
-  new THREE.MeshBasicMaterial({
-    map: floorTexture,
-    transparent: false,
-    toneMapped: false,
-    side: THREE.DoubleSide
-  })
-);
-floor.rotation.x = -Math.PI * 0.5;
-floor.position.y = -4;
-scene.add(floor);
 
 const axes = new THREE.AxesHelper(4);
 axes.position.set(0, -3.98, 0);
@@ -365,7 +301,9 @@ const minFlybyRadius = 4.2;
 
 function createGridCube(colorHex) {
   const geometry = new THREE.BoxGeometry(1.1, 1.1, 1.1);
-  return new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
+  const mesh = new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
+  mesh.frustumCulled = false;
+  return mesh;
 }
 
 function makeSafeFlybyLane(y, z) {
@@ -399,27 +337,26 @@ for (let i = 0; i < 12; i++) {
   });
 }
 
-const gridSize = 4;
+const gridSize = 64;
 const gridSpacing = 2.2;
 const gridOffset = (gridSize - 1) * 0.5 * gridSpacing;
-for (let ix = 0; ix < gridSize; ix++) {
-  for (let iy = 0; iy < gridSize; iy++) {
-    for (let iz = 0; iz < gridSize; iz++) {
-      const mesh = createGridCube(0x60d5ff);
-      const startX = -38 + ix * 2.0;
-      const startY = -gridOffset + iy * gridSpacing;
-      const startZ = -12 + iz * gridSpacing;
-      const initialPos = new THREE.Vector3(startX, startY, startZ);
-      mesh.position.copy(initialPos);
-      mesh.visible = false;
-      scene.add(mesh);
-      gridCubes.push({
-        mesh,
-        initialPos,
-        spinY: (Math.random() - 0.5) * 0.3,
-        spinZ: (Math.random() - 0.5) * 0.3
-      });
-    }
+const gridPlaneStartX = -48;
+for (let iy = 0; iy < gridSize; iy++) {
+  for (let iz = 0; iz < gridSize; iz++) {
+    const mesh = createGridCube(0x60d5ff);
+    const startX = gridPlaneStartX;
+    const startY = 1.0 - gridOffset + iy * gridSpacing;
+    const startZ = -gridOffset + iz * gridSpacing;
+    const initialPos = new THREE.Vector3(startX, startY, startZ);
+    mesh.position.copy(initialPos);
+    mesh.visible = false;
+    scene.add(mesh);
+    gridCubes.push({
+      mesh,
+      initialPos,
+      spinY: 0,
+      spinZ: 0
+    });
   }
 }
 
@@ -1216,12 +1153,9 @@ renderer.setAnimationLoop((time, xrFrame) => {
       const m = item.mesh;
       m.position.x += motionSpeed * dt;
       if (m.position.x > 42) {
-        m.position.x = -48 - Math.random() * 12;
-        m.position.y = item.initialPos.y;
-        m.position.z = item.initialPos.z;
+        m.position.copy(item.initialPos);
       }
-      m.rotation.y += item.spinY * dt;
-      m.rotation.z += item.spinZ * dt;
+      // no rotation for grid cubes in cube grid scene
 
       inverseQuat.copy(m.quaternion).invert();
       localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
