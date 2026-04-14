@@ -212,7 +212,7 @@ const sharedUniforms = {
   uAberrationEnabled: { value: aberrationToggle.checked ? 1 : 0 }
 };
 
-const sceneLabels = ['Moving objects', 'Observer-relative world'];
+const sceneLabels = ['Moving objects', 'Moving cube grid'];
 let sceneMode = 0;
 let panelTitle = null;
 const playerVelocity = new THREE.Vector3();
@@ -357,10 +357,16 @@ observerBall.position.set(0, 0, 0);
 scene.add(observerBall);
 
 const movers = [];
+const gridCubes = [];
 const palette = [0xff8f6b, 0xf2c94c, 0x8be28b, 0x9b8cff, 0x60d5ff, 0xff6ad5, 0xa3ff8f, 0xff9f82];
 const types = ['box', 'sphere', 'capsule', 'sphere', 'box', 'capsule', 'sphere', 'box', 'sphere', 'capsule', 'box', 'sphere'];
 const impactOffsets = [-13, -10, -6, -3, 0, 3, 6, 10, 13, 17, -17, 8];
 const minFlybyRadius = 4.2;
+
+function createGridCube(colorHex) {
+  const geometry = new THREE.BoxGeometry(1.1, 1.1, 1.1);
+  return new THREE.Mesh(geometry, makeRelativisticMaterial(colorHex));
+}
 
 function makeSafeFlybyLane(y, z) {
   const currentRadius = Math.hypot(y, z);
@@ -391,6 +397,30 @@ for (let i = 0; i < 12; i++) {
     laneZ,
     offset: Math.random() * Math.PI * 2
   });
+}
+
+const gridSize = 4;
+const gridSpacing = 2.2;
+const gridOffset = (gridSize - 1) * 0.5 * gridSpacing;
+for (let ix = 0; ix < gridSize; ix++) {
+  for (let iy = 0; iy < gridSize; iy++) {
+    for (let iz = 0; iz < gridSize; iz++) {
+      const mesh = createGridCube(0x60d5ff);
+      const startX = -38 + ix * 2.0;
+      const startY = -gridOffset + iy * gridSpacing;
+      const startZ = -12 + iz * gridSpacing;
+      const initialPos = new THREE.Vector3(startX, startY, startZ);
+      mesh.position.copy(initialPos);
+      mesh.visible = false;
+      scene.add(mesh);
+      gridCubes.push({
+        mesh,
+        initialPos,
+        spinY: (Math.random() - 0.5) * 0.3,
+        spinZ: (Math.random() - 0.5) * 0.3
+      });
+    }
+  }
 }
 
 function createRoundedPanelTexture({
@@ -778,14 +808,24 @@ function setAberrationEnabled(enabled) {
   vrUI.aberrationRow.hitTarget.userData.setValue(enabled);
 }
 
+function updateSceneVisibility() {
+  for (const item of movers) {
+    item.mesh.visible = sceneMode === 0;
+  }
+  for (const item of gridCubes) {
+    item.mesh.visible = sceneMode === 1;
+  }
+}
+
 function setSceneMode(mode) {
   sceneMode = mode;
   if (sceneToggleButton) {
-    sceneToggleButton.textContent = sceneMode === 0 ? 'Switch to observer-relative scene' : 'Switch to moving-object scene';
+    sceneToggleButton.textContent = sceneMode === 0 ? 'Switch to cube grid scene' : 'Switch to moving-object scene';
   }
   if (panelTitle) {
     panelTitle.userData.setText(`Relativistic ${sceneLabels[sceneMode]}`);
   }
+  updateSceneVisibility();
 }
 
 function toggleSceneMode() {
@@ -795,13 +835,7 @@ function toggleSceneMode() {
 
 function updateRelativisticUniforms() {
   camera.getWorldPosition(sharedUniforms.uObserverPos.value);
-  if (sceneMode === 0) {
-    sharedUniforms.uWorldMotionDir.value.set(1, 0, 0);
-  } else if (playerVelocity.lengthSq() > 1e-6) {
-    sharedUniforms.uWorldMotionDir.value.copy(playerVelocity).normalize().negate();
-  } else {
-    sharedUniforms.uWorldMotionDir.value.set(1, 0, 0);
-  }
+  sharedUniforms.uWorldMotionDir.value.set(1, 0, 0);
 }
 
 function resetSceneObjects() {
@@ -809,6 +843,9 @@ function resetSceneObjects() {
     item.mesh.position.copy(item.initialPos);
     item.laneY = item.initialPos.y;
     item.laneZ = item.initialPos.z;
+  }
+  for (const item of gridCubes) {
+    item.mesh.position.copy(item.initialPos);
   }
 }
 
@@ -1153,9 +1190,9 @@ renderer.setAnimationLoop((time, xrFrame) => {
   const inverseQuat = new THREE.Quaternion();
   const localMotionDir = new THREE.Vector3();
 
-  for (const item of movers) {
-    const m = item.mesh;
-    if (sceneMode === 0) {
+  if (sceneMode === 0) {
+    for (const item of movers) {
+      const m = item.mesh;
       m.position.x += motionSpeed * dt;
       if (m.position.x > 42) {
         m.position.x = -48 - Math.random() * 12;
@@ -1165,17 +1202,32 @@ renderer.setAnimationLoop((time, xrFrame) => {
         m.position.y = item.laneY;
         m.position.z = item.laneZ;
       }
-    } else {
-      m.position.copy(item.initialPos);
+      m.rotation.y += item.spinY * dt;
+      m.rotation.z += item.spinZ * dt;
+
+      inverseQuat.copy(m.quaternion).invert();
+      localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
+      if (m.material.uniforms) {
+        m.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
+      }
     }
+  } else {
+    for (const item of gridCubes) {
+      const m = item.mesh;
+      m.position.x += motionSpeed * dt;
+      if (m.position.x > 42) {
+        m.position.x = -48 - Math.random() * 12;
+        m.position.y = item.initialPos.y;
+        m.position.z = item.initialPos.z;
+      }
+      m.rotation.y += item.spinY * dt;
+      m.rotation.z += item.spinZ * dt;
 
-    m.rotation.y += item.spinY * dt;
-    m.rotation.z += item.spinZ * dt;
-
-    inverseQuat.copy(m.quaternion).invert();
-    localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
-    if (m.material.uniforms) {
-      m.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
+      inverseQuat.copy(m.quaternion).invert();
+      localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
+      if (m.material.uniforms) {
+        m.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
+      }
     }
   }
 
