@@ -233,8 +233,8 @@ const vertexShader = `
     vec3 localMotionDir = normalize(uLocalMotionDir);
     mat3 model3 = mat3(modelMatrix);
 
-    if (uLorentzEnabled == 1 && abs(uBeta) > 0.0001) {
-      float contraction = sqrt(max(1.0 - abs(uBeta) * abs(uBeta), 0.0001));
+    if (uLorentzEnabled == 1 && uBeta > 0.0001) {
+      float contraction = sqrt(max(1.0 - uBeta * uBeta, 0.0001));
 
       vec3 posParallel = localMotionDir * dot(localPos, localMotionDir);
       vec3 posPerp = localPos - posParallel;
@@ -636,7 +636,7 @@ function createVRSliderRow(initialValue) {
       track.material.color.set(hovered ? 0x243247 : 0x1b2431);
     },
     setValue(v) {
-      const t = THREE.MathUtils.clamp(v / 2.0, 0, 1);
+      const t = THREE.MathUtils.clamp(v / 0.95, 0, 1);
       const minFill = 0.025;
       fill.scale.x = Math.max(t, minFill);
       fill.position.x = (-trackWidth / 2) + (trackWidth * fill.scale.x) / 2;
@@ -672,24 +672,24 @@ vrUI.panel.visible = false;
 scene.add(vrUI.panel);
 
 const panelBg = new THREE.Mesh(
-  new THREE.PlaneGeometry(3.95, 2.55),
+  new THREE.PlaneGeometry(3.45, 2.55),
   new THREE.MeshBasicMaterial({ color: 0x0a1018, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
 );
 vrUI.panel.add(panelBg);
 
 const panelOutline = new THREE.LineLoop(
   new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(-1.975, -1.275, 0.01),
-    new THREE.Vector3(1.975, -1.275, 0.01),
-    new THREE.Vector3(1.975, 1.275, 0.01),
-    new THREE.Vector3(-1.975, 1.275, 0.01)
+    new THREE.Vector3(-1.725, -1.275, 0.01),
+    new THREE.Vector3(1.725, -1.275, 0.01),
+    new THREE.Vector3(1.725, 1.275, 0.01),
+    new THREE.Vector3(-1.725, 1.275, 0.01)
   ]),
   new THREE.LineBasicMaterial({ color: 0x8bc2ff, transparent: true, opacity: 0.35 })
 );
 vrUI.panel.add(panelOutline);
 
-const panelTitle = createTextPlane({ width: 3.6, height: 0.28, text: 'Relativistic observer VR demo', font: 'bold 86px Arial', align: 'left' });
-panelTitle.position.set(-1.95, 0.94, 0.03);
+const panelTitle = createTextPlane({ width: 3.1, height: 0.28, text: 'Relativistic observer VR demo', font: 'bold 86px Arial', align: 'left' });
+panelTitle.position.set(-1.45, 0.94, 0.03);
 vrUI.panel.add(panelTitle);
 
 vrUI.sliderRow = createVRSliderRow(parseFloat(betaSlider.value));
@@ -709,15 +709,15 @@ vrUI.panel.add(vrUI.aberrationRow.row);
 vrUI.aberrationRow.hitTarget.userData.kind = 'aberration-toggle';
 vrUI.interactables.push(vrUI.aberrationRow.hitTarget);
 
-const vrHelp1 = createTextPlane({ width: 3.7, height: 0.16, text: 'Turn your hand/controller palm up to open the menu', font: '66px Arial', color: '#c9d9eb', align: 'left' });
-vrHelp1.position.set(-1.95, -0.72, 0.03);
+const vrHelp1 = createTextPlane({ width: 3.3, height: 0.16, text: 'Turn your hand/controller palm up to open the menu', font: '68px Arial', color: '#c9d9eb', align: 'left' });
+vrHelp1.position.set(-1.45, -0.72, 0.03);
 vrUI.panel.add(vrHelp1);
 
-const vrHelp2 = createTextPlane({ width: 3.7, height: 0.16, text: 'Left stick: move, right stick: turn + vertical fly', font: '66px Arial', color: '#c9d9eb', align: 'left' });
-vrHelp2.position.set(-1.95, -0.92, 0.03);
+const vrHelp2 = createTextPlane({ width: 3.3, height: 0.16, text: 'Left stick: move, right stick: turn + vertical fly', font: '68px Arial', color: '#c9d9eb', align: 'left' });
+vrHelp2.position.set(-1.45, -0.92, 0.03);
 vrUI.panel.add(vrHelp2);
 
-vrUI.panel.position.set(0, 1.3, -3.4);
+vrUI.panel.position.set(0, 1.3, -2.6);
 vrUI.panel.lookAt(new THREE.Vector3(0, 1.2, 0));
 
 const keys = new Set();
@@ -744,7 +744,7 @@ document.addEventListener('keydown', (e) => keys.add(e.code));
 document.addEventListener('keyup', (e) => keys.delete(e.code));
 
 function setBeta(nextValue) {
-  const v = THREE.MathUtils.clamp(nextValue, 0, 2.0);
+  const v = THREE.MathUtils.clamp(nextValue, 0, 0.95);
   sharedUniforms.uBeta.value = v;
   betaSlider.value = v.toFixed(2);
   betaValue.textContent = v.toFixed(2);
@@ -968,7 +968,7 @@ function activateVRUI(target, intersection) {
       break;
     case 'slider':
       if (intersection && intersection.uv) {
-        const next = THREE.MathUtils.clamp(intersection.uv.x * 2.0, 0, 2.0);
+        const next = THREE.MathUtils.clamp(intersection.uv.x * 0.95, 0, 0.95);
         setBeta(next);
       }
       break;
