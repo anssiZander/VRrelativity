@@ -311,6 +311,35 @@ function createGridCube(colorHex) {
   return mesh;
 }
 
+const bullets = [];
+const bulletSpeedFactor = 0.999;
+
+function createBullet(origin, direction) {
+  const geometry = new THREE.SphereGeometry(0.22, 10, 8);
+  const mesh = new THREE.Mesh(geometry, makeRelativisticMaterial(0xffdd88));
+  mesh.position.copy(origin);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), direction.clone().normalize());
+  mesh.frustumCulled = false;
+  scene.add(mesh);
+
+  const beta = sharedUniforms.uBeta.value;
+  const c = beta > 0.01 ? sharedUniforms.uSpeed.value / beta : sharedUniforms.uSpeed.value;
+  const speed = bulletSpeedFactor * c;
+  bullets.push({
+    mesh,
+    velocity: direction.clone().normalize().multiplyScalar(speed),
+    lifetime: 10.0
+  });
+}
+
+function shootBullet(controller) {
+  tempMatrix.identity().extractRotation(controller.matrixWorld);
+  tempOrigin.setFromMatrixPosition(controller.matrixWorld);
+  tempDirection.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
+  const spawnPos = tempOrigin.clone().addScaledVector(tempDirection, 0.16);
+  createBullet(spawnPos, tempDirection);
+}
+
 function makeSafeFlybyLane(y, z) {
   const currentRadius = Math.hypot(y, z);
   if (currentRadius >= minFlybyRadius) return { y, z };
@@ -1010,6 +1039,8 @@ function buildController(index, color) {
     controller.userData.selecting = true;
     if (controller.userData.hovered) {
       activateVRUI(controller.userData.hovered, controller.userData.intersection);
+    } else {
+      shootBullet(controller);
     }
   });
 
@@ -1209,6 +1240,21 @@ renderer.setAnimationLoop((time, xrFrame) => {
       if (m.material.uniforms) {
         m.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
       }
+    }
+  }
+
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const bullet = bullets[i];
+    bullet.mesh.position.addScaledVector(bullet.velocity, dt);
+    bullet.lifetime -= dt;
+    inverseQuat.copy(bullet.mesh.quaternion).invert();
+    localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
+    if (bullet.mesh.material.uniforms) {
+      bullet.mesh.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
+    }
+    if (bullet.lifetime <= 0 || bullet.mesh.position.length() > 220) {
+      scene.remove(bullet.mesh);
+      bullets.splice(i, 1);
     }
   }
 
