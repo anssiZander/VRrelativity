@@ -271,8 +271,8 @@ function makeProjectileMaterial(colorHex) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uObserverPos: projectileObserverPos,
-      uWorldMotionDir: sharedUniforms.uWorldMotionDir,
-      uLocalMotionDir: { value: new THREE.Vector3(1, 0, 0) },
+      uWorldMotionDir: { value: new THREE.Vector3(1, 0, 0) },
+      uLocalMotionDir: { value: new THREE.Vector3(0, 0, -1) },
       uBeta: sharedUniforms.uBeta,
       uSpeed: sharedUniforms.uSpeed,
       uLorentzEnabled: sharedUniforms.uLorentzEnabled,
@@ -299,7 +299,7 @@ function createMovingMesh(kind, colorHex) {
   } else if (kind === 'box') {
     geometry = new THREE.BoxGeometry(2.1, 2.1, 2.1, 3, 3, 3);
   } else {
-    geometry = new THREE.CapsuleGeometry(0.8, 5, 10, 18);
+    geometry = new THREE.BoxGeometry(5.6, 1.2, 1.2, 5, 1, 1);
   }
 
   const mesh = new THREE.Mesh(geometry, material || makeRelativisticMaterial(colorHex));
@@ -340,10 +340,14 @@ const bulletSpeedFactor = 0.999;
 
 function createBullet(origin, direction) {
   const geometry = new THREE.SphereGeometry(0.22, 10, 8);
+  const velocityDir = direction.clone().normalize();
   const mesh = new THREE.Mesh(geometry, makeProjectileMaterial(0xffdd88));
   mesh.position.copy(origin);
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), direction.clone().normalize());
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), velocityDir);
   mesh.frustumCulled = false;
+  if (mesh.material.uniforms) {
+    mesh.material.uniforms.uWorldMotionDir.value.copy(velocityDir);
+  }
   scene.add(mesh);
 
   const beta = sharedUniforms.uBeta.value;
@@ -351,7 +355,7 @@ function createBullet(origin, direction) {
   const speed = bulletSpeedFactor * c;
   bullets.push({
     mesh,
-    velocity: direction.clone().normalize().multiplyScalar(speed),
+    velocity: velocityDir.multiplyScalar(speed),
     lifetime: 10.0
   });
 }
@@ -1277,7 +1281,8 @@ renderer.setAnimationLoop((time, xrFrame) => {
     bullet.mesh.position.addScaledVector(bullet.velocity, dt);
     bullet.lifetime -= dt;
     inverseQuat.copy(bullet.mesh.quaternion).invert();
-    localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
+    const bulletWorldDir = bullet.mesh.material.uniforms?.uWorldMotionDir?.value || sharedUniforms.uWorldMotionDir.value;
+    localMotionDir.copy(bulletWorldDir).applyQuaternion(inverseQuat).normalize();
     if (bullet.mesh.material.uniforms) {
       bullet.mesh.material.uniforms.uLocalMotionDir.value.copy(localMotionDir);
     }
