@@ -272,7 +272,7 @@ const fragmentShader = `
 `;
 
 function makeRelativisticMaterial(colorHex) {
-  return new THREE.ShaderMaterial({
+  const material = new THREE.ShaderMaterial({
     uniforms: {
       uObserverPos: sharedUniforms.uObserverPos,
       uWorldMotionDir: sharedUniforms.uWorldMotionDir,
@@ -291,6 +291,8 @@ function makeRelativisticMaterial(colorHex) {
     transparent: true,
     depthWrite: false
   });
+  relativisticMaterials.add(material);
+  return material;
 }
 
 function makeProjectileMaterial(colorHex) {
@@ -358,6 +360,7 @@ scene.add(observerBall);
 
 const movers = [];
 const gridCubes = [];
+const relativisticMaterials = new Set();
 const palette = [0xff8f6b, 0xf2c94c, 0x8be28b, 0x9b8cff, 0x60d5ff, 0xff6ad5, 0xa3ff8f, 0xff9f82];
 const types = ['box', 'sphere', 'capsule', 'sphere', 'box', 'capsule', 'sphere', 'box', 'sphere', 'capsule', 'box', 'sphere'];
 const impactOffsets = [-13, -10, -6, -3, 0, 3, 6, 10, 13, 17, -17, 8];
@@ -753,7 +756,7 @@ function createVRSliderRow(initialValue) {
 
 const xrPanelSizes = {
   expanded: { width: 3.55, height: 3.56 },
-  collapsed: { width: 3.55, height: 0.58 }
+  collapsed: { width: 2.48, height: 0.58 }
 };
 
 const vrUI = {
@@ -861,15 +864,17 @@ function updateXRPanelFrame(width, height) {
 }
 
 function applyXRPanelLayout() {
-  const { width, height } = uiState.menuMinimized ? xrPanelSizes.collapsed : xrPanelSizes.expanded;
-  const headerInset = 0.18;
-  const titleWidth = panelTitle.userData.width || 2.4;
+  const { width, height } = getXRPanelSize();
+  const titleScaleX = uiState.menuMinimized ? 0.72 : 1;
+  const headerInset = uiState.menuMinimized ? 0.14 : 0.18;
+  const titleWidth = (panelTitle.userData.width || 2.4) * titleScaleX;
   const buttonWidth = vrUI.minimizeButton.group.userData.width || 0.92;
   const top = height / 2;
   const left = -width / 2;
   const right = width / 2;
 
   updateXRPanelFrame(width, height);
+  panelTitle.scale.set(titleScaleX, 1, 1);
   panelTitle.position.set(left + headerInset + titleWidth / 2, top - 0.18, 0.03);
   vrUI.minimizeButton.group.position.set(right - headerInset - buttonWidth / 2, top - 0.18, 0.04);
   vrUI.content.visible = !uiState.menuMinimized;
@@ -881,6 +886,11 @@ function getXRMenuInteractables() {
     : [...vrUI.persistentInteractables, ...vrUI.interactables];
 }
 
+function updateXRPanelTitle() {
+  if (!panelTitle) return;
+  panelTitle.userData.setText(uiState.menuMinimized ? 'XR controls' : `XR controls: ${sceneLabels[sceneMode]}`);
+}
+
 function applyMenuMinimizedState() {
   desktopPanel.classList.toggle('panel-collapsed', uiState.menuMinimized);
   if (panelMinimizeButton) {
@@ -890,6 +900,7 @@ function applyMenuMinimizedState() {
   if (vrUI.minimizeButton) {
     vrUI.minimizeButton.setLabel(uiState.menuMinimized ? 'Show' : 'Hide');
   }
+  updateXRPanelTitle();
   applyXRPanelLayout();
 }
 
@@ -941,6 +952,10 @@ function isImmersiveARPresenting() {
   return renderer.xr.isPresenting && xrState.sessionMode === 'immersive-ar';
 }
 
+function isPassthroughModeActive() {
+  return flatARState.active || isImmersiveARPresenting();
+}
+
 function shouldShowDesktopOverlay() {
   if (!renderer.xr.isPresenting) return true;
   return isImmersiveARPresenting() && xrState.overlayEnabled && isHandheldDevice;
@@ -951,9 +966,26 @@ function shouldShowWorldSpacePanel() {
   return !(isImmersiveARPresenting() && xrState.overlayEnabled && isHandheldDevice);
 }
 
+function getXRPanelSize() {
+  return uiState.menuMinimized ? xrPanelSizes.collapsed : xrPanelSizes.expanded;
+}
+
 function getXRMenuPreset() {
   if (xrState.sessionMode === 'immersive-ar') {
+    if (uiState.menuMinimized) {
+      return {
+        anchor: 'corner',
+        forward: 2.6,
+        cornerMargin: 0.24,
+        panelOpacity: 0.58,
+        surfaceOpacity: 0.8,
+        accentOpacity: 0.9,
+        borderOpacity: 0.3
+      };
+    }
+
     return {
+      anchor: 'center',
       forward: 3.0,
       right: -0.82,
       up: 0.34,
@@ -964,7 +996,20 @@ function getXRMenuPreset() {
     };
   }
 
+  if (uiState.menuMinimized) {
+    return {
+      anchor: 'corner',
+      forward: 3.15,
+      cornerMargin: 0.32,
+      panelOpacity: 0.24,
+      surfaceOpacity: 0.5,
+      accentOpacity: 0.68,
+      borderOpacity: 0.16
+    };
+  }
+
   return {
+    anchor: 'center',
     forward: 4.15,
     right: 0,
     up: -0.08,
@@ -973,6 +1018,22 @@ function getXRMenuPreset() {
     accentOpacity: 0.68,
     borderOpacity: 0.16
   };
+}
+
+function updateRelativisticMaterialOpacity() {
+  const targetOpacity = isPassthroughModeActive() ? 1.0 : 0.6;
+  const opaque = targetOpacity >= 0.999;
+
+  for (const material of relativisticMaterials) {
+    if (material.uniforms?.uOpacity) {
+      material.uniforms.uOpacity.value = targetOpacity;
+    }
+    if (material.transparent !== !opaque || material.depthWrite !== opaque) {
+      material.transparent = !opaque;
+      material.depthWrite = opaque;
+      material.needsUpdate = true;
+    }
+  }
 }
 
 function applyXRMenuAppearance() {
@@ -990,13 +1051,13 @@ function applyXRMenuAppearance() {
 }
 
 function updateBackdropVisibility() {
-  const mrModeActive = isImmersiveARPresenting();
-  const passthroughActive = flatARState.active || mrModeActive;
+  const passthroughActive = isPassthroughModeActive();
   scene.background = passthroughActive ? null : defaultSceneBackground;
   scene.fog = passthroughActive ? null : defaultSceneFog;
-  stars.visible = !(flatARState.active || mrModeActive);
+  stars.visible = !passthroughActive;
   axes.visible = !passthroughActive;
   cameraFeed.style.display = flatARState.active ? 'block' : 'none';
+  updateRelativisticMaterialOpacity();
   desktopPanel.classList.toggle('hidden', !shouldShowDesktopOverlay());
   if (!shouldShowWorldSpacePanel()) {
     vrUI.panel.visible = false;
@@ -1387,9 +1448,7 @@ function setSceneMode(mode) {
   if (sceneEyeButton) {
     sceneEyeButton.textContent = sceneMode === 2 ? 'Back to moving-object scene' : 'Switch to eye-relative scene';
   }
-  if (panelTitle) {
-    panelTitle.userData.setText(`XR controls: ${sceneLabels[sceneMode]}`);
-  }
+  updateXRPanelTitle();
   if (vrUI.sceneGridButton) {
     vrUI.sceneGridButton.setLabel(sceneMode === 1 ? 'Back to objects' : 'Cube grid scene');
   }
@@ -1742,9 +1801,21 @@ function updateVRMenuPose(xrFrame) {
   tempVec5.set(0, 1, 0).applyQuaternion(tempQuat).normalize();
 
   vrUI.panel.position.copy(tempVec3);
-  vrUI.panel.position.addScaledVector(tempDirection, preset.forward);
-  vrUI.panel.position.addScaledVector(tempVec4, preset.right);
-  vrUI.panel.position.addScaledVector(tempVec5, preset.up);
+  if (preset.anchor === 'corner') {
+    const panelSize = getXRPanelSize();
+    const viewportHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) * preset.forward;
+    const viewportWidth = viewportHeight * camera.aspect;
+    const margin = preset.cornerMargin || 0.25;
+    const rightOffset = Math.max(0.18, viewportWidth * 0.5 - panelSize.width * 0.5 - margin);
+    const upOffset = Math.max(0.18, viewportHeight * 0.5 - panelSize.height * 0.5 - margin);
+    vrUI.panel.position.addScaledVector(tempDirection, preset.forward);
+    vrUI.panel.position.addScaledVector(tempVec4, rightOffset);
+    vrUI.panel.position.addScaledVector(tempVec5, upOffset);
+  } else {
+    vrUI.panel.position.addScaledVector(tempDirection, preset.forward);
+    vrUI.panel.position.addScaledVector(tempVec4, preset.right);
+    vrUI.panel.position.addScaledVector(tempVec5, preset.up);
+  }
   vrUI.panel.quaternion.copy(tempQuat);
 
   const euler = new THREE.Euler().setFromQuaternion(vrUI.panel.quaternion, 'YXZ');
