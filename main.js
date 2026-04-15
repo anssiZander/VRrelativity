@@ -10,7 +10,50 @@ const sceneToggleButton = document.getElementById('sceneToggle');
 const sceneEyeButton = document.getElementById('sceneEyeButton');
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05070b);
+
+// Background brightness control (0.0 = completely dark, 1.0 = full brightness)
+const backgroundBrightness = 0.2;
+
+// Load galaxy background texture
+const textureLoader = new THREE.TextureLoader();
+textureLoader.load(
+  'https://images.pexels.com/photos/574115/pexels-photo-574115.jpeg?auto=compress&cs=tinysrgb&w=4096',
+  function(texture) {
+    // Create a canvas to modify the texture brightness
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = texture.image.width;
+    canvas.height = texture.image.height;
+    
+    // Draw the texture to canvas
+    ctx.drawImage(texture.image, 0, 0);
+    
+    // Get image data and modify brightness
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] *= backgroundBrightness;     // Red
+      data[i + 1] *= backgroundBrightness; // Green
+      data[i + 2] *= backgroundBrightness; // Blue
+      // Alpha stays the same
+    }
+    
+    // Put the modified data back
+    ctx.putImageData(imageData, 0, 0);
+    
+    // Create a new texture from the modified canvas
+    const modifiedTexture = new THREE.CanvasTexture(canvas);
+    modifiedTexture.colorSpace = THREE.SRGBColorSpace;
+    scene.background = modifiedTexture;
+  },
+  undefined,
+  function(error) {
+    console.warn('Failed to load galaxy background, using fallback color');
+    scene.background = new THREE.Color(0x05070b);
+  }
+);
+
 scene.fog = new THREE.Fog(0x05070b, 45, 140);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -279,7 +322,7 @@ function makeProjectileMaterial(colorHex) {
       uAberrationEnabled: sharedUniforms.uAberrationEnabled,
       uCheckerEnabled: { value: 0 }, // No checker pattern for projectiles
       uColor: { value: new THREE.Color(colorHex) },
-      uOpacity: { value: 0.8 }
+      uOpacity: { value: 1 }
     },
     vertexShader,
     fragmentShader,
@@ -304,6 +347,14 @@ function createMovingMesh(kind, colorHex) {
 
   const mesh = new THREE.Mesh(geometry, material || makeRelativisticMaterial(colorHex));
   mesh.frustumCulled = false;
+  
+  // Set random initial rotation for static object orientations
+  mesh.rotation.set(
+    Math.random() * Math.PI * 2,
+    Math.random() * Math.PI * 2,
+    Math.random() * Math.PI * 2
+  );
+  
   return mesh;
 }
 
@@ -339,7 +390,7 @@ const bullets = [];
 const bulletSpeedFactor = 0.999;
 
 function createBullet(origin, direction) {
-  const geometry = new THREE.SphereGeometry(0.22, 10, 8);
+  const geometry = new THREE.SphereGeometry(0.1, 10, 8);
   const velocityDir = direction.clone().normalize();
   const mesh = new THREE.Mesh(geometry, makeProjectileMaterial(0xffdd88));
   mesh.position.copy(origin);
@@ -1265,8 +1316,9 @@ renderer.setAnimationLoop((time, xrFrame) => {
         m.position.y = item.laneY;
         m.position.z = item.laneZ;
       }
-      m.rotation.y += item.spinY * dt;
-      m.rotation.z += item.spinZ * dt;
+      // Removed continuous rotation for static object orientations
+      // m.rotation.y += item.spinY * dt;
+      // m.rotation.z += item.spinZ * dt;
 
       inverseQuat.copy(m.quaternion).invert();
       localMotionDir.copy(sharedUniforms.uWorldMotionDir.value).applyQuaternion(inverseQuat).normalize();
