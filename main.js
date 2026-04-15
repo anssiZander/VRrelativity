@@ -977,6 +977,7 @@ function getXRMenuPreset() {
         anchor: 'corner',
         forward: 2.6,
         cornerMargin: 0.24,
+        cornerSafeZone: 0.76,
         panelOpacity: 0.58,
         surfaceOpacity: 0.8,
         accentOpacity: 0.9,
@@ -1001,6 +1002,7 @@ function getXRMenuPreset() {
       anchor: 'corner',
       forward: 3.15,
       cornerMargin: 0.32,
+      cornerSafeZone: 0.68,
       panelOpacity: 0.24,
       surfaceOpacity: 0.5,
       accentOpacity: 0.68,
@@ -1806,8 +1808,11 @@ function updateVRMenuPose(xrFrame) {
     const viewportHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) * preset.forward;
     const viewportWidth = viewportHeight * camera.aspect;
     const margin = preset.cornerMargin || 0.25;
-    const rightOffset = Math.max(0.18, viewportWidth * 0.5 - panelSize.width * 0.5 - margin);
-    const upOffset = Math.max(0.18, viewportHeight * 0.5 - panelSize.height * 0.5 - margin);
+    const safeZone = preset.cornerSafeZone || 0.8;
+    const maxRightOffset = Math.max(0.18, viewportWidth * 0.5 - panelSize.width * 0.5 - margin);
+    const maxUpOffset = Math.max(0.18, viewportHeight * 0.5 - panelSize.height * 0.5 - margin);
+    const rightOffset = Math.max(0.18, maxRightOffset * safeZone);
+    const upOffset = Math.max(0.18, maxUpOffset * safeZone);
     vrUI.panel.position.addScaledVector(tempDirection, preset.forward);
     vrUI.panel.position.addScaledVector(tempVec4, rightOffset);
     vrUI.panel.position.addScaledVector(tempVec5, upOffset);
