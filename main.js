@@ -118,8 +118,11 @@ const mrButton = createActionButton('Checking MR...');
 const vrButton = createActionButton('Checking VR...');
 const phoneARButton = createActionButton('Enable Phone AR');
 
+const initialFacingYaw = Math.PI * 0.5;
+
 const player = new THREE.Group();
 player.position.set(0, 1.8, 0);
+player.rotation.y = initialFacingYaw;
 scene.add(player);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 2500);
@@ -849,10 +852,11 @@ function shouldShowWorldSpacePanel() {
 }
 
 function updateBackdropVisibility() {
-  const passthroughActive = flatARState.active || isImmersiveARPresenting();
+  const mrModeActive = isImmersiveARPresenting();
+  const passthroughActive = flatARState.active || mrModeActive;
   scene.background = passthroughActive ? null : defaultSceneBackground;
   scene.fog = passthroughActive ? null : defaultSceneFog;
-  stars.visible = !passthroughActive;
+  stars.visible = !(flatARState.active || mrModeActive);
   axes.visible = !passthroughActive;
   cameraFeed.style.display = flatARState.active ? 'block' : 'none';
   desktopPanel.classList.toggle('hidden', !shouldShowDesktopOverlay());
@@ -1146,7 +1150,7 @@ updateActionButtons();
 
 const keys = new Set();
 let pointerLocked = false;
-let yaw = 0;
+let yaw = initialFacingYaw;
 let pitch = 0;
 const touchLook = {
   active: false,
