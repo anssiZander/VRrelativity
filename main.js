@@ -544,7 +544,7 @@ function createTextPlane({ width, height, text, font = 'bold 92px Arial', color 
     paddingX: 32
   });
 
-  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false });
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, depthTest: false });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
   mesh.userData.width = width;
   mesh.userData.height = height;
@@ -573,7 +573,7 @@ function createVRButton(label, width, height) {
   group.userData.height = height;
   const bg = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({ color: baseColor.clone(), transparent: true, opacity: 0.96 })
+    new THREE.MeshBasicMaterial({ color: baseColor.clone(), transparent: true, opacity: 0.96, depthTest: false })
   );
   group.add(bg);
 
@@ -581,10 +581,10 @@ function createVRButton(label, width, height) {
     new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(-width / 2, -height / 2, 0.002),
       new THREE.Vector3(width / 2, -height / 2, 0.002),
-      new THREE.Vector3(width / 2, height / 2, 0.002),
-      new THREE.Vector3(-width / 2, height / 2, 0.002)
-    ]),
-    new THREE.LineBasicMaterial({ color: 0x8bbcff, transparent: true, opacity: 0.5 })
+    new THREE.Vector3(width / 2, height / 2, 0.002),
+    new THREE.Vector3(-width / 2, height / 2, 0.002)
+  ]),
+    new THREE.LineBasicMaterial({ color: 0x8bbcff, transparent: true, opacity: 0.5, depthTest: false })
   );
   group.add(border);
 
@@ -622,13 +622,13 @@ function createVRToggleRow(label, initialValue) {
 
   const bg = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({ color: 0x101722, transparent: true, opacity: 0.98 })
+    new THREE.MeshBasicMaterial({ color: 0x101722, transparent: true, opacity: 0.98, depthTest: false })
   );
   row.add(bg);
 
   const checkbox = new THREE.Mesh(
     new THREE.PlaneGeometry(0.22, 0.22),
-    new THREE.MeshBasicMaterial({ color: initialValue ? 0x147aff : 0x1b2431 })
+    new THREE.MeshBasicMaterial({ color: initialValue ? 0x147aff : 0x1b2431, depthTest: false })
   );
   checkbox.position.set(-width / 2 + 0.26, 0, 0.01);
   row.add(checkbox);
@@ -684,21 +684,21 @@ function createVRSliderRow(initialValue) {
   const trackHeight = 0.14;
   const track = new THREE.Mesh(
     new THREE.PlaneGeometry(trackWidth, trackHeight),
-    new THREE.MeshBasicMaterial({ color: 0x1b2431, transparent: true, opacity: 0.98 })
+    new THREE.MeshBasicMaterial({ color: 0x1b2431, transparent: true, opacity: 0.98, depthTest: false })
   );
   track.position.set(0, -0.03, 0.01);
   row.add(track);
 
   const fill = new THREE.Mesh(
     new THREE.PlaneGeometry(trackWidth, trackHeight * 0.78),
-    new THREE.MeshBasicMaterial({ color: 0x147aff, transparent: true, opacity: 0.92 })
+    new THREE.MeshBasicMaterial({ color: 0x147aff, transparent: true, opacity: 0.92, depthTest: false })
   );
   fill.position.set(0, -0.03, 0.015);
   row.add(fill);
 
   const knob = new THREE.Mesh(
     new THREE.CircleGeometry(0.085, 24),
-    new THREE.MeshBasicMaterial({ color: 0xe9f5ff })
+    new THREE.MeshBasicMaterial({ color: 0xe9f5ff, depthTest: false })
   );
   knob.position.set(0, -0.03, 0.02);
   row.add(knob);
@@ -707,10 +707,10 @@ function createVRSliderRow(initialValue) {
     new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(-trackWidth / 2, -trackHeight / 2, 0.022),
       new THREE.Vector3(trackWidth / 2, -trackHeight / 2, 0.022),
-      new THREE.Vector3(trackWidth / 2, trackHeight / 2, 0.022),
-      new THREE.Vector3(-trackWidth / 2, trackHeight / 2, 0.022)
-    ]),
-    new THREE.LineBasicMaterial({ color: 0x92c7ff, transparent: true, opacity: 0.65 })
+    new THREE.Vector3(trackWidth / 2, trackHeight / 2, 0.022),
+    new THREE.Vector3(-trackWidth / 2, trackHeight / 2, 0.022)
+  ]),
+    new THREE.LineBasicMaterial({ color: 0x92c7ff, transparent: true, opacity: 0.65, depthTest: false })
   );
   border.position.copy(track.position);
   row.add(border);
@@ -779,13 +779,13 @@ scene.add(vrUI.panel);
 
 const panelBg = new THREE.Mesh(
   new THREE.PlaneGeometry(1, 1),
-  new THREE.MeshBasicMaterial({ color: 0x0a1018, transparent: true, opacity: 0.52, side: THREE.DoubleSide })
+  new THREE.MeshBasicMaterial({ color: 0x0a1018, transparent: true, opacity: 0.52, side: THREE.DoubleSide, depthTest: false })
 );
 vrUI.panel.add(panelBg);
 
 const panelOutline = new THREE.LineLoop(
   new THREE.BufferGeometry(),
-  new THREE.LineBasicMaterial({ color: 0x8bc2ff, transparent: true, opacity: 0.24 })
+  new THREE.LineBasicMaterial({ color: 0x8bc2ff, transparent: true, opacity: 0.24, depthTest: false })
 );
 vrUI.panel.add(panelOutline);
 vrUI.borderMaterials.push(panelOutline.material);
@@ -1788,11 +1788,20 @@ function updateVRMenuPose(xrFrame) {
   tempVec4.set(1, 0, 0).applyQuaternion(tempQuat).normalize();
   tempVec5.set(0, 1, 0).applyQuaternion(tempQuat).normalize();
   const fixedPoint = getXRExpandedButtonAnchor();
+  const viewportHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) * preset.forward;
+  const viewportWidth = viewportHeight * camera.aspect;
+  const anchorMargin = 0.18;
+  const anchorWidth = xrPanelSizes.collapsed.width;
+  const anchorHeight = xrPanelSizes.collapsed.height;
+  const maxAnchorRight = Math.max(0.12, viewportWidth * 0.5 - anchorWidth * 0.5 - anchorMargin);
+  const maxAnchorUp = Math.max(0.12, viewportHeight * 0.5 - anchorHeight * 0.5 - anchorMargin);
+  const anchorRight = THREE.MathUtils.clamp(preset.right + fixedPoint.x, -maxAnchorRight, maxAnchorRight);
+  const anchorUp = THREE.MathUtils.clamp(preset.up + fixedPoint.y, -maxAnchorUp, maxAnchorUp);
 
   vrUI.panel.position.copy(tempVec3);
   vrUI.panel.position.addScaledVector(tempDirection, preset.forward);
-  vrUI.panel.position.addScaledVector(tempVec4, preset.right + fixedPoint.x);
-  vrUI.panel.position.addScaledVector(tempVec5, preset.up + fixedPoint.y);
+  vrUI.panel.position.addScaledVector(tempVec4, anchorRight);
+  vrUI.panel.position.addScaledVector(tempVec5, anchorUp);
   vrUI.panel.quaternion.copy(tempQuat);
 
   const euler = new THREE.Euler().setFromQuaternion(vrUI.panel.quaternion, 'YXZ');
