@@ -77,3 +77,13 @@ Additional tweaks in this build:
 
 
 Update v8: controller rays are now hidden until a real tracked-pointer controller pose is available, and the ray starts slightly in front of the controller to avoid near-plane artifacts.
+
+
+## Sky/background notes
+
+This build uses a **procedural 4096 x 2048 equirectangular sky** for the visible background, and a separate **PMREM-processed copy** of that sky for `scene.environment`.
+
+That split is important:
+- the visible background stays sharp and avoids the low-resolution seam issues that happen when a PMREM texture is used directly as the sky
+- the lighting/reflection environment is still prefiltered correctly for PBR materials
+- the sky dome is re-centered to the active camera each frame, so it behaves correctly in VR without becoming head-locked

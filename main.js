@@ -10,61 +10,7 @@ const sceneToggleButton = document.getElementById('sceneToggle');
 const sceneEyeButton = document.getElementById('sceneEyeButton');
 
 const scene = new THREE.Scene();
-
-// Background brightness control (0.0 = completely dark, 1.0 = full brightness)
-const backgroundBrightness = 0.2;
-
-// Load galaxy background texture
-const textureLoader = new THREE.TextureLoader();
-textureLoader.load(
-  'https://images.pexels.com/photos/574115/pexels-photo-574115.jpeg?auto=compress&cs=tinysrgb&w=4096',
-  function(texture) {
-    // Create a canvas to modify the texture brightness
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = texture.image.width;
-    canvas.height = texture.image.height;
-    
-    // Draw the texture to canvas
-    ctx.drawImage(texture.image, 0, 0);
-    
-    // Get image data and modify brightness
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    
-    for (let i = 0; i < data.length; i += 4) {
-      data[i] *= backgroundBrightness;     // Red
-      data[i + 1] *= backgroundBrightness; // Green
-      data[i + 2] *= backgroundBrightness; // Blue
-      // Alpha stays the same
-    }
-    
-    // Put the modified data back
-    ctx.putImageData(imageData, 0, 0);
-    
-    // Create a new texture from the modified canvas
-    const modifiedTexture = new THREE.CanvasTexture(canvas);
-    modifiedTexture.colorSpace = THREE.SRGBColorSpace;
-    
-    // Use PMREMGenerator for proper equirectangular environment
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    pmremGenerator.compileEquirectangularShader();
-    
-    const envMap = pmremGenerator.fromEquirectangular(modifiedTexture).texture;
-    scene.environment = envMap;
-    scene.background = envMap;
-    
-    // Clean up
-    modifiedTexture.dispose();
-    pmremGenerator.dispose();
-  },
-  undefined,
-  function(error) {
-    console.warn('Failed to load galaxy background, using fallback color');
-    scene.background = new THREE.Color(0x05070b);
-  }
-);
-
+scene.background = new THREE.Color(0x05070b);
 scene.fog = new THREE.Fog(0x05070b, 45, 140);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -73,6 +19,158 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
+
+// Background brightness control for the procedural 4k sky.
+const backgroundBrightness = 0.24;
+let skyDome = null;
+let skyTexture = null;
+let environmentTarget = null;
+
+function createSeededRandom(seed = 123456789) {
+  let state = seed >>> 0;
+  return () => {
+    state = (1664525 * state + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+function blendHorizontalSeam(ctx, width, height, seamWidth = 48) {
+  const left = ctx.getImageData(0, 0, seamWidth, height);
+  const right = ctx.getImageData(width - seamWidth, 0, seamWidth, height);
+  const leftData = left.data;
+  const rightData = right.data;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < seamWidth; x++) {
+      const t = seamWidth <= 1 ? 0 : x / (seamWidth - 1);
+      const li = (y * seamWidth + x) * 4;
+      const ri = li;
+      for (let c = 0; c < 4; c++) {
+        const mixed = Math.round(leftData[li + c] * (1 - t) + rightData[ri + c] * t);
+        leftData[li + c] = mixed;
+        rightData[ri + c] = mixed;
+      }
+    }
+  }
+
+  ctx.putImageData(left, 0, 0);
+  ctx.putImageData(right, width - seamWidth, 0);
+}
+
+function drawWrappedGlow(ctx, width, x, y, radius, color, alpha = 1) {
+  for (const dx of [0, -width, width]) {
+    const gradient = ctx.createRadialGradient(x + dx, y, 0, x + dx, y, radius);
+    gradient.addColorStop(0, `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`);
+    gradient.addColorStop(0.35, `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha * 0.22})`);
+    gradient.addColorStop(1, `rgba(${color[0]}, ${color[1]}, ${color[2]}, 0)`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x + dx - radius, y - radius, radius * 2, radius * 2);
+  }
+}
+
+function createProceduralSkyCanvas(width = 4096, height = 2048) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  const rand = createSeededRandom(90210);
+
+  // Base vertical gradient.
+  const bg = ctx.createLinearGradient(0, 0, 0, height);
+  bg.addColorStop(0, `rgba(${Math.round(10 * backgroundBrightness)}, ${Math.round(16 * backgroundBrightness)}, ${Math.round(28 * backgroundBrightness)}, 1)`);
+  bg.addColorStop(0.5, `rgba(${Math.round(6 * backgroundBrightness)}, ${Math.round(8 * backgroundBrightness)}, ${Math.round(16 * backgroundBrightness)}, 1)`);
+  bg.addColorStop(1, `rgba(${Math.round(2 * backgroundBrightness)}, ${Math.round(4 * backgroundBrightness)}, ${Math.round(8 * backgroundBrightness)}, 1)`);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, width, height);
+
+  // Nebula / Milky Way glows. These are wrapped horizontally so the left and right
+  // edges match.
+  const nebulaPalette = [
+    [78, 120, 255],
+    [60, 200, 255],
+    [150, 80, 255],
+    [255, 110, 185],
+    [255, 196, 108]
+  ];
+
+  for (let i = 0; i < 14; i++) {
+    const x = rand() * width;
+    const y = height * (0.5 + (rand() - 0.5) * 0.42);
+    const radius = 220 + rand() * 680;
+    const color = nebulaPalette[Math.floor(rand() * nebulaPalette.length)];
+    drawWrappedGlow(ctx, width, x, y, radius, color, 0.06 + rand() * 0.05);
+  }
+
+  // A soft galactic band.
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let i = 0; i < 1500; i++) {
+    const x = rand() * width;
+    const arc = Math.sin((x / width) * Math.PI * 2 * 1.15 + 0.7);
+    const centerY = height * 0.55 + arc * height * 0.12;
+    const y = centerY + (rand() - 0.5) * height * 0.12;
+    const radius = 18 + rand() * 95;
+    const color = nebulaPalette[Math.floor(rand() * nebulaPalette.length)];
+    drawWrappedGlow(ctx, width, x, y, radius, color, 0.012 + rand() * 0.02);
+  }
+  ctx.restore();
+
+  // Dense stars.
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  for (let i = 0; i < 5200; i++) {
+    const x = rand() * width;
+    const y = rand() * height;
+    const size = rand() < 0.94 ? 0.7 + rand() * 1.2 : 1.6 + rand() * 2.7;
+    const alpha = rand() < 0.9 ? 0.35 + rand() * 0.45 : 0.7 + rand() * 0.3;
+    const c = 210 + Math.floor(rand() * 45);
+    drawWrappedGlow(ctx, width, x, y, size * 3.8, [c, c, 255], alpha * 0.045);
+    for (const dx of [0, -width, width]) {
+      ctx.fillStyle = `rgba(${c}, ${c}, 255, ${alpha})`;
+      ctx.fillRect(x + dx, y, size, size);
+    }
+  }
+  ctx.restore();
+
+  // Make the longitude seam match exactly.
+  blendHorizontalSeam(ctx, width, height, 64);
+
+  return canvas;
+}
+
+function initBackgroundSky() {
+  const skyCanvas = createProceduralSkyCanvas(4096, 2048);
+  skyTexture = new THREE.CanvasTexture(skyCanvas);
+  skyTexture.colorSpace = THREE.SRGBColorSpace;
+  skyTexture.wrapS = THREE.RepeatWrapping;
+  skyTexture.wrapT = THREE.ClampToEdgeWrapping;
+  skyTexture.minFilter = THREE.LinearMipmapLinearFilter;
+  skyTexture.magFilter = THREE.LinearFilter;
+  skyTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  skyTexture.needsUpdate = true;
+
+  skyDome = new THREE.Mesh(
+    new THREE.SphereGeometry(1200, 64, 40),
+    new THREE.MeshBasicMaterial({
+      map: skyTexture,
+      side: THREE.BackSide,
+      fog: false,
+      depthWrite: false,
+      toneMapped: false
+    })
+  );
+  skyDome.renderOrder = -1000;
+  skyDome.frustumCulled = false;
+  scene.add(skyDome);
+
+  const pmremGenerator = new THREE.PMREMGenerator(renderer);
+  pmremGenerator.compileEquirectangularShader();
+  environmentTarget = pmremGenerator.fromEquirectangular(skyTexture);
+  scene.environment = environmentTarget.texture;
+  pmremGenerator.dispose();
+}
+
+initBackgroundSky();
 
 function createEnterVRButton(renderer) {
   const button = document.createElement('button');
@@ -191,6 +289,7 @@ const stars = new THREE.Points(
   }
   stars.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
 }
+stars.visible = false;
 scene.add(stars);
 
 const motionSpeed = 8.0;
@@ -1288,6 +1387,11 @@ renderer.xr.addEventListener('sessionend', () => {
 const clock = new THREE.Clock();
 
 renderer.setAnimationLoop((time, xrFrame) => {
+  if (skyDome) {
+    const activeCamera = renderer.xr.isPresenting ? renderer.xr.getCamera(camera) : camera;
+    activeCamera.getWorldPosition(tempVec3);
+    skyDome.position.copy(tempVec3);
+  }
   const dt = Math.min(clock.getDelta(), 0.05);
   const elapsed = clock.elapsedTime;
 
