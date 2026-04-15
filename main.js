@@ -45,13 +45,18 @@ textureLoader.load(
     // Create a new texture from the modified canvas
     const modifiedTexture = new THREE.CanvasTexture(canvas);
     modifiedTexture.colorSpace = THREE.SRGBColorSpace;
-    modifiedTexture.wrapS = THREE.ClampToEdgeWrapping;
-    modifiedTexture.wrapT = THREE.ClampToEdgeWrapping;
-    modifiedTexture.minFilter = THREE.LinearFilter;
-    modifiedTexture.magFilter = THREE.LinearFilter;
     
-    // Use scene.background for proper VR background rendering
-    scene.background = modifiedTexture;
+    // Use PMREMGenerator for proper equirectangular environment
+    const pmremGenerator = new THREE.PMREMGenerator(renderer);
+    pmremGenerator.compileEquirectangularShader();
+    
+    const envMap = pmremGenerator.fromEquirectangular(modifiedTexture).texture;
+    scene.environment = envMap;
+    scene.background = envMap;
+    
+    // Clean up
+    modifiedTexture.dispose();
+    pmremGenerator.dispose();
   },
   undefined,
   function(error) {
@@ -152,7 +157,7 @@ const player = new THREE.Group();
 player.position.set(0, 1.8, 0);
 scene.add(player);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 500);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 2500);
 camera.position.set(0, 0, 0);
 player.add(camera);
 
