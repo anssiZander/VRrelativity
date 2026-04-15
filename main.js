@@ -756,7 +756,7 @@ function createVRSliderRow(initialValue) {
 
 const xrPanelSizes = {
   expanded: { width: 3.55, height: 3.56 },
-  collapsed: { width: 2.48, height: 0.58 }
+  collapsed: { width: 1.10, height: 0.42 }
 };
 
 const vrUI = {
@@ -863,20 +863,34 @@ function updateXRPanelFrame(width, height) {
   ]);
 }
 
+function getXRExpandedButtonAnchor() {
+  const { width, height } = xrPanelSizes.expanded;
+  const headerInset = 0.18;
+  const buttonWidth = vrUI.minimizeButton.group.userData.width || 0.92;
+  return {
+    x: width / 2 - headerInset - buttonWidth / 2,
+    y: height / 2 - 0.18
+  };
+}
+
 function applyXRPanelLayout() {
   const { width, height } = getXRPanelSize();
-  const titleScaleX = uiState.menuMinimized ? 0.72 : 1;
-  const headerInset = uiState.menuMinimized ? 0.14 : 0.18;
-  const titleWidth = (panelTitle.userData.width || 2.4) * titleScaleX;
-  const buttonWidth = vrUI.minimizeButton.group.userData.width || 0.92;
+  const anchor = getXRExpandedButtonAnchor();
+  const headerInset = 0.18;
+  const titleWidth = panelTitle.userData.width || 2.4;
   const top = height / 2;
   const left = -width / 2;
-  const right = width / 2;
+  const frameOffsetX = uiState.menuMinimized ? 0 : -anchor.x;
+  const frameOffsetY = uiState.menuMinimized ? 0 : -anchor.y;
 
   updateXRPanelFrame(width, height);
-  panelTitle.scale.set(titleScaleX, 1, 1);
-  panelTitle.position.set(left + headerInset + titleWidth / 2, top - 0.18, 0.03);
-  vrUI.minimizeButton.group.position.set(right - headerInset - buttonWidth / 2, top - 0.18, 0.04);
+  panelBg.position.set(frameOffsetX, frameOffsetY, 0);
+  panelOutline.position.set(frameOffsetX, frameOffsetY, 0.01);
+  panelTitle.visible = !uiState.menuMinimized;
+  panelTitle.scale.set(1, 1, 1);
+  panelTitle.position.set(left + headerInset + titleWidth / 2 + frameOffsetX, top - 0.18 + frameOffsetY, 0.03);
+  vrUI.minimizeButton.group.position.set(0, 0, 0.04);
+  vrUI.content.position.set(frameOffsetX, frameOffsetY, 0);
   vrUI.content.visible = !uiState.menuMinimized;
 }
 
@@ -972,21 +986,7 @@ function getXRPanelSize() {
 
 function getXRMenuPreset() {
   if (xrState.sessionMode === 'immersive-ar') {
-    if (uiState.menuMinimized) {
-      return {
-        anchor: 'corner',
-        forward: 2.6,
-        cornerMargin: 0.24,
-        cornerSafeZone: 0.76,
-        panelOpacity: 0.58,
-        surfaceOpacity: 0.8,
-        accentOpacity: 0.9,
-        borderOpacity: 0.3
-      };
-    }
-
     return {
-      anchor: 'center',
       forward: 3.0,
       right: -0.82,
       up: 0.34,
@@ -997,21 +997,7 @@ function getXRMenuPreset() {
     };
   }
 
-  if (uiState.menuMinimized) {
-    return {
-      anchor: 'corner',
-      forward: 3.15,
-      cornerMargin: 0.32,
-      cornerSafeZone: 0.68,
-      panelOpacity: 0.24,
-      surfaceOpacity: 0.5,
-      accentOpacity: 0.68,
-      borderOpacity: 0.16
-    };
-  }
-
   return {
-    anchor: 'center',
     forward: 4.15,
     right: 0,
     up: -0.08,
@@ -1801,26 +1787,12 @@ function updateVRMenuPose(xrFrame) {
   tempDirection.set(0, 0, -1).applyQuaternion(tempQuat).normalize();
   tempVec4.set(1, 0, 0).applyQuaternion(tempQuat).normalize();
   tempVec5.set(0, 1, 0).applyQuaternion(tempQuat).normalize();
+  const fixedPoint = getXRExpandedButtonAnchor();
 
   vrUI.panel.position.copy(tempVec3);
-  if (preset.anchor === 'corner') {
-    const panelSize = getXRPanelSize();
-    const viewportHeight = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) * preset.forward;
-    const viewportWidth = viewportHeight * camera.aspect;
-    const margin = preset.cornerMargin || 0.25;
-    const safeZone = preset.cornerSafeZone || 0.8;
-    const maxRightOffset = Math.max(0.18, viewportWidth * 0.5 - panelSize.width * 0.5 - margin);
-    const maxUpOffset = Math.max(0.18, viewportHeight * 0.5 - panelSize.height * 0.5 - margin);
-    const rightOffset = Math.max(0.18, maxRightOffset * safeZone);
-    const upOffset = Math.max(0.18, maxUpOffset * safeZone);
-    vrUI.panel.position.addScaledVector(tempDirection, preset.forward);
-    vrUI.panel.position.addScaledVector(tempVec4, rightOffset);
-    vrUI.panel.position.addScaledVector(tempVec5, upOffset);
-  } else {
-    vrUI.panel.position.addScaledVector(tempDirection, preset.forward);
-    vrUI.panel.position.addScaledVector(tempVec4, preset.right);
-    vrUI.panel.position.addScaledVector(tempVec5, preset.up);
-  }
+  vrUI.panel.position.addScaledVector(tempDirection, preset.forward);
+  vrUI.panel.position.addScaledVector(tempVec4, preset.right + fixedPoint.x);
+  vrUI.panel.position.addScaledVector(tempVec5, preset.up + fixedPoint.y);
   vrUI.panel.quaternion.copy(tempQuat);
 
   const euler = new THREE.Euler().setFromQuaternion(vrUI.panel.quaternion, 'YXZ');
