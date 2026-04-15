@@ -266,6 +266,30 @@ function makeRelativisticMaterial(colorHex) {
   });
 }
 
+function makeProjectileMaterial(colorHex) {
+  const projectileObserverPos = { value: new THREE.Vector3() };
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uObserverPos: projectileObserverPos,
+      uWorldMotionDir: sharedUniforms.uWorldMotionDir,
+      uLocalMotionDir: { value: new THREE.Vector3(1, 0, 0) },
+      uBeta: sharedUniforms.uBeta,
+      uSpeed: sharedUniforms.uSpeed,
+      uLorentzEnabled: sharedUniforms.uLorentzEnabled,
+      uAberrationEnabled: sharedUniforms.uAberrationEnabled,
+      uCheckerEnabled: { value: 0 }, // No checker pattern for projectiles
+      uColor: { value: new THREE.Color(colorHex) },
+      uOpacity: { value: 0.8 }
+    },
+    vertexShader,
+    fragmentShader,
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false,
+    userData: { projectileObserverPos }
+  });
+}
+
 function createMovingMesh(kind, colorHex) {
   let geometry;
   let material = null;
@@ -275,7 +299,7 @@ function createMovingMesh(kind, colorHex) {
   } else if (kind === 'box') {
     geometry = new THREE.BoxGeometry(2.1, 2.1, 2.1, 3, 3, 3);
   } else {
-    geometry = new THREE.CapsuleGeometry(0.8, 1.8, 10, 18);
+    geometry = new THREE.CapsuleGeometry(0.8, 5, 10, 18);
   }
 
   const mesh = new THREE.Mesh(geometry, material || makeRelativisticMaterial(colorHex));
@@ -284,7 +308,7 @@ function createMovingMesh(kind, colorHex) {
 }
 
 const observerBall = new THREE.Mesh(
-  new THREE.SphereGeometry(2.5, 32, 24),
+  new THREE.SphereGeometry(.1, 32, 24),
   new THREE.MeshStandardMaterial({
     color: 0xffffff,
     transparent: true,
@@ -316,7 +340,7 @@ const bulletSpeedFactor = 0.999;
 
 function createBullet(origin, direction) {
   const geometry = new THREE.SphereGeometry(0.22, 10, 8);
-  const mesh = new THREE.Mesh(geometry, makeRelativisticMaterial(0xffdd88));
+  const mesh = new THREE.Mesh(geometry, makeProjectileMaterial(0xffdd88));
   mesh.position.copy(origin);
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), direction.clone().normalize());
   mesh.frustumCulled = false;
@@ -336,8 +360,8 @@ function shootBullet(controller) {
   tempMatrix.identity().extractRotation(controller.matrixWorld);
   tempOrigin.setFromMatrixPosition(controller.matrixWorld);
   tempDirection.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
-  const spawnPos = tempOrigin.clone().addScaledVector(tempDirection, 0.16);
-  createBullet(spawnPos, tempDirection);
+  // Spawn bullet exactly at controller position for now
+  createBullet(tempOrigin, tempDirection);
 }
 
 function makeSafeFlybyLane(y, z) {
@@ -834,12 +858,16 @@ function toggleEyeScene() {
 }
 
 function updateRelativisticUniforms() {
-  if (sceneMode === 2) {
-    camera.getWorldPosition(sharedUniforms.uObserverPos.value);
-  } else {
-    sharedUniforms.uObserverPos.value.set(0, 0, 0);
-  }
+  camera.getWorldPosition(tempVec3);
+  sharedUniforms.uObserverPos.value.copy(sceneMode === 2 ? tempVec3 : new THREE.Vector3(0, 0, 0));
   sharedUniforms.uWorldMotionDir.value.set(1, 0, 0);
+
+  // Update projectile observer positions to always use camera position
+  scene.traverse((object) => {
+    if (object.material && object.material.userData && object.material.userData.projectileObserverPos) {
+      object.material.uniforms.uObserverPos.value.copy(tempVec3);
+    }
+  });
 }
 
 function resetSceneObjects() {
@@ -987,6 +1015,7 @@ const raycaster = new THREE.Raycaster();
 const tempMatrix = new THREE.Matrix4();
 const tempOrigin = new THREE.Vector3();
 const tempDirection = new THREE.Vector3();
+const tempVec3 = new THREE.Vector3();
 const controllerGripVisualLength = 8;
 const rayStartOffset = 0.06;
 
