@@ -1,7 +1,10 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 
 const container = document.getElementById('app');
+const cameraFeed = document.getElementById('cameraFeed');
 const desktopPanel = document.getElementById('panel');
+const overlayRoot = document.getElementById('overlayRoot');
+const buttonDock = document.getElementById('buttonDock');
 const betaSlider = document.getElementById('betaSlider');
 const betaValue = document.getElementById('betaValue');
 const lorentzToggle = document.getElementById('lorentzToggle');
@@ -9,15 +12,20 @@ const aberrationToggle = document.getElementById('aberrationToggle');
 const sceneToggleButton = document.getElementById('sceneToggle');
 const sceneEyeButton = document.getElementById('sceneEyeButton');
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x05070b);
-scene.fog = new THREE.Fog(0x05070b, 45, 140);
+const sceneBackgroundColor = 0x05070b;
+const defaultSceneBackground = new THREE.Color(sceneBackgroundColor);
+const defaultSceneFog = new THREE.Fog(sceneBackgroundColor, 45, 140);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const scene = new THREE.Scene();
+scene.background = defaultSceneBackground;
+scene.fog = defaultSceneFog;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.setClearColor(0x000000, 0);
 container.appendChild(renderer.domElement);
 
 function createEnterVRButton(renderer) {
@@ -97,7 +105,18 @@ function createEnterVRButton(renderer) {
   document.body.appendChild(button);
 }
 
-createEnterVRButton(renderer);
+function createActionButton(label) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'floating-button';
+  button.textContent = label;
+  buttonDock.appendChild(button);
+  return button;
+}
+
+const mrButton = createActionButton('Checking MR...');
+const vrButton = createActionButton('Checking VR...');
+const phoneARButton = createActionButton('Enable Phone AR');
 
 const player = new THREE.Group();
 player.position.set(0, 1.8, 0);
@@ -105,6 +124,7 @@ scene.add(player);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 2500);
 camera.position.set(0, 0, 0);
+camera.rotation.order = 'YXZ';
 player.add(camera);
 
 const hemiLight = new THREE.HemisphereLight(0xbfd8ff, 0x1b1d24, 1.4);
@@ -778,13 +798,366 @@ vrUI.interactables.push(vrSceneButtonEye.hitTarget);
 vrUI.panel.position.set(0, 1.3, -2.6);
 vrUI.panel.lookAt(new THREE.Vector3(0, 1.2, 0));
 
+const isHandheldDevice =
+  Boolean(navigator.userAgentData?.mobile) ||
+  /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+  window.matchMedia('(pointer: coarse)').matches;
+
+const xrSupport = {
+  ar: false,
+  vr: false
+};
+
+const xrState = {
+  busy: false,
+  sessionMode: null,
+  overlayEnabled: false
+};
+
+const flatARState = {
+  active: false,
+  stream: null,
+  listening: false,
+  hasOrientation: false,
+  alpha: 0,
+  beta: 0,
+  gamma: 0,
+  screenOrientation: 0
+};
+
+const deviceLookEuler = new THREE.Euler();
+const deviceLookAdjustment = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+const screenOrientationAxis = new THREE.Vector3(0, 0, 1);
+const screenOrientationQuaternion = new THREE.Quaternion();
+
+function getActiveXRSession() {
+  return renderer.xr.getSession();
+}
+
+function isImmersiveARPresenting() {
+  return renderer.xr.isPresenting && xrState.sessionMode === 'immersive-ar';
+}
+
+function shouldShowDesktopOverlay() {
+  if (!renderer.xr.isPresenting) return true;
+  return isImmersiveARPresenting() && xrState.overlayEnabled && isHandheldDevice;
+}
+
+function shouldShowWorldSpacePanel() {
+  if (!renderer.xr.isPresenting) return false;
+  return xrState.sessionMode !== 'immersive-ar' || !isHandheldDevice;
+}
+
+function updateBackdropVisibility() {
+  const passthroughActive = flatARState.active || isImmersiveARPresenting();
+  scene.background = passthroughActive ? null : defaultSceneBackground;
+  scene.fog = passthroughActive ? null : defaultSceneFog;
+  stars.visible = !passthroughActive;
+  axes.visible = !passthroughActive;
+  cameraFeed.style.display = flatARState.active ? 'block' : 'none';
+  desktopPanel.classList.toggle('hidden', !shouldShowDesktopOverlay());
+  if (!shouldShowWorldSpacePanel()) {
+    vrUI.panel.visible = false;
+    setVRHoverStates(new Set());
+  }
+
+  const anyButtonVisible = [mrButton, vrButton, phoneARButton].some((button) => !button.hidden);
+  const allowOverlayButtons =
+    !renderer.xr.isPresenting ||
+    (isImmersiveARPresenting() && xrState.overlayEnabled && isHandheldDevice);
+  buttonDock.hidden = !anyButtonVisible || !allowOverlayButtons;
+}
+
+function updateActionButtons() {
+  const canUseFlatAR = isHandheldDevice && Boolean(navigator.mediaDevices?.getUserMedia);
+  mrButton.hidden = !xrSupport.ar;
+  vrButton.hidden = !xrSupport.vr;
+  phoneARButton.hidden = !canUseFlatAR;
+
+  mrButton.textContent = isImmersiveARPresenting() ? 'Exit MR' : 'Enter MR';
+  vrButton.textContent = renderer.xr.isPresenting && xrState.sessionMode === 'immersive-vr' ? 'Exit VR' : 'Enter VR';
+  phoneARButton.textContent = flatARState.active ? 'Disable Phone AR' : 'Enable Phone AR';
+
+  mrButton.disabled = xrState.busy;
+  vrButton.disabled = xrState.busy;
+  phoneARButton.disabled = xrState.busy || renderer.xr.isPresenting;
+
+  updateBackdropVisibility();
+}
+
+function setActionButtonsBusy(busy) {
+  xrState.busy = busy;
+  updateActionButtons();
+}
+
+async function endCurrentXRSession() {
+  const session = getActiveXRSession();
+  if (session) {
+    await session.end();
+  }
+}
+
+function getScreenOrientationAngleRad() {
+  if (window.screen.orientation && typeof window.screen.orientation.angle === 'number') {
+    return THREE.MathUtils.degToRad(window.screen.orientation.angle);
+  }
+  if (typeof window.orientation === 'number') {
+    return THREE.MathUtils.degToRad(window.orientation);
+  }
+  return 0;
+}
+
+function updateFlatARScreenOrientation() {
+  flatARState.screenOrientation = getScreenOrientationAngleRad();
+}
+
+function handleFlatAROrientation(event) {
+  if (
+    typeof event.alpha !== 'number' ||
+    typeof event.beta !== 'number' ||
+    typeof event.gamma !== 'number'
+  ) {
+    return;
+  }
+
+  flatARState.alpha = THREE.MathUtils.degToRad(event.alpha);
+  flatARState.beta = THREE.MathUtils.degToRad(event.beta);
+  flatARState.gamma = THREE.MathUtils.degToRad(event.gamma);
+  flatARState.hasOrientation = true;
+}
+
+function attachFlatAROrientation() {
+  if (flatARState.listening) return;
+  flatARState.listening = true;
+  flatARState.hasOrientation = false;
+  updateFlatARScreenOrientation();
+  window.addEventListener('deviceorientation', handleFlatAROrientation, true);
+  window.addEventListener('orientationchange', updateFlatARScreenOrientation);
+  if (window.screen.orientation && typeof window.screen.orientation.addEventListener === 'function') {
+    window.screen.orientation.addEventListener('change', updateFlatARScreenOrientation);
+  }
+}
+
+function detachFlatAROrientation() {
+  if (!flatARState.listening) return;
+  flatARState.listening = false;
+  flatARState.hasOrientation = false;
+  window.removeEventListener('deviceorientation', handleFlatAROrientation, true);
+  window.removeEventListener('orientationchange', updateFlatARScreenOrientation);
+  if (window.screen.orientation && typeof window.screen.orientation.removeEventListener === 'function') {
+    window.screen.orientation.removeEventListener('change', updateFlatARScreenOrientation);
+  }
+}
+
+async function requestMotionPermissionIfNeeded() {
+  if (typeof window.DeviceOrientationEvent === 'undefined') return false;
+  if (typeof window.DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const permission = await window.DeviceOrientationEvent.requestPermission();
+      return permission === 'granted';
+    } catch (err) {
+      console.warn('Device orientation permission request failed.', err);
+      return false;
+    }
+  }
+  return true;
+}
+
+async function stopFlatAR() {
+  if (!flatARState.active && !flatARState.stream) return;
+
+  detachFlatAROrientation();
+
+  if (flatARState.stream) {
+    for (const track of flatARState.stream.getTracks()) {
+      track.stop();
+    }
+  }
+
+  flatARState.stream = null;
+  flatARState.active = false;
+  cameraFeed.pause();
+  cameraFeed.srcObject = null;
+  updateActionButtons();
+}
+
+async function startFlatAR() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('Camera APIs are not available in this browser.');
+  }
+
+  if (flatARState.active) return;
+
+  await endCurrentXRSession();
+
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: {
+      facingMode: { ideal: 'environment' },
+      width: { ideal: 1920 },
+      height: { ideal: 1080 }
+    }
+  });
+
+  flatARState.stream = stream;
+  flatARState.active = true;
+  cameraFeed.srcObject = stream;
+
+  try {
+    await cameraFeed.play();
+  } catch (err) {
+    console.warn('Camera preview playback failed.', err);
+  }
+
+  if (await requestMotionPermissionIfNeeded()) {
+    attachFlatAROrientation();
+  } else {
+    flatARState.hasOrientation = false;
+  }
+
+  updateActionButtons();
+}
+
+async function toggleFlatAR() {
+  if (xrState.busy) return;
+
+  setActionButtonsBusy(true);
+  try {
+    if (flatARState.active) {
+      await stopFlatAR();
+    } else {
+      await startFlatAR();
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Could not start phone AR. Open the page over HTTPS (or localhost), allow camera access, and try again.');
+  } finally {
+    setActionButtonsBusy(false);
+  }
+}
+
+async function startImmersiveSession(mode) {
+  if (!navigator.xr) {
+    throw new Error('WebXR is not available in this browser.');
+  }
+
+  if (flatARState.active) {
+    await stopFlatAR();
+  }
+
+  const activeSession = getActiveXRSession();
+  if (activeSession && xrState.sessionMode !== mode) {
+    await activeSession.end();
+  }
+
+  const wantsOverlay = mode === 'immersive-ar';
+  const requiresOverlay = wantsOverlay && isHandheldDevice;
+  const requiredFeatures = mode === 'immersive-ar'
+    ? ['local', ...(requiresOverlay ? ['dom-overlay'] : [])]
+    : [];
+  const optionalFeatures = mode === 'immersive-ar'
+    ? ['local-floor', 'bounded-floor', 'hand-tracking', ...(requiresOverlay ? [] : ['dom-overlay'])]
+    : ['local-floor', 'bounded-floor', 'hand-tracking'];
+  const sessionInit = {
+    optionalFeatures
+  };
+
+  if (requiredFeatures.length > 0) {
+    sessionInit.requiredFeatures = requiredFeatures;
+  }
+  if (wantsOverlay) {
+    sessionInit.domOverlay = { root: overlayRoot };
+  }
+
+  const session = await navigator.xr.requestSession(mode, sessionInit);
+  renderer.xr.setReferenceSpaceType(mode === 'immersive-ar' ? 'local' : 'local-floor');
+  xrState.sessionMode = mode;
+  xrState.overlayEnabled = Boolean(session.domOverlayState);
+  await renderer.xr.setSession(session);
+  updateActionButtons();
+}
+
+async function toggleImmersiveSession(mode) {
+  if (xrState.busy) return;
+
+  setActionButtonsBusy(true);
+  try {
+    const activeSession = getActiveXRSession();
+    if (activeSession && xrState.sessionMode === mode) {
+      await activeSession.end();
+    } else {
+      await startImmersiveSession(mode);
+    }
+  } catch (err) {
+    console.error(err);
+
+    if (mode === 'immersive-ar' && isHandheldDevice && navigator.mediaDevices?.getUserMedia) {
+      try {
+        await startFlatAR();
+        return;
+      } catch (fallbackErr) {
+        console.error(fallbackErr);
+      }
+    }
+
+    if (mode === 'immersive-ar') {
+      alert('Could not start MR. Use HTTPS in a browser that supports immersive-ar. On phones, Enable Phone AR can be used as a fallback.');
+    } else {
+      alert('Could not start VR. Make sure you opened this page over HTTPS in a WebXR-capable browser.');
+    }
+  } finally {
+    setActionButtonsBusy(false);
+  }
+}
+
+async function initializeExperienceButtons() {
+  mrButton.addEventListener('click', () => {
+    void toggleImmersiveSession('immersive-ar');
+  });
+  vrButton.addEventListener('click', () => {
+    void toggleImmersiveSession('immersive-vr');
+  });
+  phoneARButton.addEventListener('click', () => {
+    void toggleFlatAR();
+  });
+
+  if (navigator.xr) {
+    try {
+      xrSupport.ar = await navigator.xr.isSessionSupported('immersive-ar');
+    } catch (err) {
+      console.warn('Could not determine immersive-ar support.', err);
+    }
+    try {
+      xrSupport.vr = await navigator.xr.isSessionSupported('immersive-vr');
+    } catch (err) {
+      console.warn('Could not determine immersive-vr support.', err);
+    }
+  }
+
+  updateActionButtons();
+}
+
+window.addEventListener('pagehide', () => {
+  void stopFlatAR();
+});
+
+void initializeExperienceButtons();
+updateActionButtons();
+
 const keys = new Set();
 let pointerLocked = false;
 let yaw = 0;
 let pitch = 0;
+const touchLook = {
+  active: false,
+  pointerId: null,
+  lastX: 0,
+  lastY: 0
+};
 
 renderer.domElement.addEventListener('click', () => {
-  if (!renderer.xr.isPresenting) renderer.domElement.requestPointerLock();
+  if (renderer.xr.isPresenting || flatARState.active || isHandheldDevice) return;
+  renderer.domElement.requestPointerLock();
 });
 
 document.addEventListener('pointerlockchange', () => {
@@ -797,6 +1170,40 @@ document.addEventListener('mousemove', (event) => {
   pitch -= event.movementY * 0.0022;
   pitch = Math.max(-Math.PI / 2 + 0.02, Math.min(Math.PI / 2 - 0.02, pitch));
 });
+
+renderer.domElement.addEventListener('pointerdown', (event) => {
+  if (!flatARState.active || flatARState.hasOrientation || event.pointerType === 'mouse') return;
+  touchLook.active = true;
+  touchLook.pointerId = event.pointerId;
+  touchLook.lastX = event.clientX;
+  touchLook.lastY = event.clientY;
+  if (typeof renderer.domElement.setPointerCapture === 'function') {
+    renderer.domElement.setPointerCapture(event.pointerId);
+  }
+});
+
+renderer.domElement.addEventListener('pointermove', (event) => {
+  if (!touchLook.active || event.pointerId !== touchLook.pointerId) return;
+  const dx = event.clientX - touchLook.lastX;
+  const dy = event.clientY - touchLook.lastY;
+  touchLook.lastX = event.clientX;
+  touchLook.lastY = event.clientY;
+  yaw -= dx * 0.005;
+  pitch -= dy * 0.005;
+  pitch = Math.max(-Math.PI / 2 + 0.02, Math.min(Math.PI / 2 - 0.02, pitch));
+});
+
+function endTouchLook(event) {
+  if (event.pointerId !== touchLook.pointerId) return;
+  touchLook.active = false;
+  touchLook.pointerId = null;
+  if (typeof renderer.domElement.releasePointerCapture === 'function') {
+    renderer.domElement.releasePointerCapture(event.pointerId);
+  }
+}
+
+renderer.domElement.addEventListener('pointerup', endTouchLook);
+renderer.domElement.addEventListener('pointercancel', endTouchLook);
 
 document.addEventListener('keydown', (e) => keys.add(e.code));
 document.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -918,7 +1325,7 @@ setAberrationEnabled(aberrationToggle.checked);
 setSceneMode(sceneMode);
 
 function moveDesktop(dt) {
-  if (renderer.xr.isPresenting) return;
+  if (renderer.xr.isPresenting || flatARState.active) return;
 
   player.rotation.y = yaw;
   camera.rotation.x = pitch;
@@ -953,6 +1360,24 @@ function moveDesktop(dt) {
   } else {
     playerVelocity.set(0, 0, 0);
   }
+}
+
+function updateFlatARPose() {
+  if (!flatARState.active) return;
+
+  player.rotation.set(0, 0, 0);
+
+  if (flatARState.hasOrientation) {
+    deviceLookEuler.set(flatARState.beta, flatARState.alpha, -flatARState.gamma, 'YXZ');
+    camera.quaternion.setFromEuler(deviceLookEuler);
+    camera.quaternion.multiply(deviceLookAdjustment);
+    screenOrientationQuaternion.setFromAxisAngle(screenOrientationAxis, -flatARState.screenOrientation);
+    camera.quaternion.multiply(screenOrientationQuaternion);
+  } else {
+    camera.rotation.set(pitch, yaw, 0);
+  }
+
+  playerVelocity.set(0, 0, 0);
 }
 
 function getStickAxes(gamepad) {
@@ -1142,7 +1567,7 @@ function activateVRUI(target, intersection) {
 }
 
 function updateVRMenuPose(xrFrame) {
-  if (!renderer.xr.isPresenting) {
+  if (!shouldShowWorldSpacePanel()) {
     vrUI.panel.visible = false;
     return;
   }
@@ -1157,7 +1582,7 @@ function updateVRMenuPose(xrFrame) {
 }
 
 function updateVRUIInteraction() {
-  if (!renderer.xr.isPresenting || !vrUI.panel.visible) {
+  if (!shouldShowWorldSpacePanel() || !vrUI.panel.visible) {
     setVRHoverStates(new Set());
     for (const controller of controllers) {
       controller.userData.hovered = null;
@@ -1217,18 +1642,23 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  updateFlatARScreenOrientation();
 });
 
 renderer.xr.addEventListener('sessionstart', () => {
+  const session = getActiveXRSession();
+  xrState.sessionMode = session?.mode || null;
+  xrState.overlayEnabled = Boolean(session?.domOverlayState);
   if (document.pointerLockElement === renderer.domElement) document.exitPointerLock();
-  desktopPanel.classList.add('hidden');
-  vrUI.panel.visible = true;
+  updateActionButtons();
 });
 
 renderer.xr.addEventListener('sessionend', () => {
-  desktopPanel.classList.remove('hidden');
+  xrState.sessionMode = null;
+  xrState.overlayEnabled = false;
   vrUI.panel.visible = false;
   setVRHoverStates(new Set());
+  updateActionButtons();
 });
 
 const clock = new THREE.Clock();
@@ -1239,6 +1669,7 @@ renderer.setAnimationLoop((time, xrFrame) => {
 
   moveDesktop(dt);
   moveVR(dt);
+  updateFlatARPose();
   updateRelativisticUniforms();
   updateVRMenuPose(xrFrame);
   updateVRUIInteraction();
