@@ -175,7 +175,7 @@ const sharedUniforms = {
 };
 
 const sceneLabels = ['Object scene', 'Cube grid scene', 'Eye-relative scene'];
-let sceneMode = 0;
+let sceneMode = 2;
 let panelTitle = null;
 const playerVelocity = new THREE.Vector3();
 const uiState = {
