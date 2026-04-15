@@ -11,6 +11,7 @@ const lorentzToggle = document.getElementById('lorentzToggle');
 const aberrationToggle = document.getElementById('aberrationToggle');
 const sceneToggleButton = document.getElementById('sceneToggle');
 const sceneEyeButton = document.getElementById('sceneEyeButton');
+const panelMinimizeButton = document.getElementById('panelMinimizeButton');
 
 const sceneBackgroundColor = 0x05070b;
 const defaultSceneBackground = new THREE.Color(sceneBackgroundColor);
@@ -173,10 +174,13 @@ const sharedUniforms = {
   uCheckerEnabled: { value: 1 }
 };
 
-const sceneLabels = ['Moving objects', 'Moving cube grid', 'Eye-relative objects'];
+const sceneLabels = ['Object scene', 'Cube grid scene', 'Eye-relative scene'];
 let sceneMode = 0;
 let panelTitle = null;
 const playerVelocity = new THREE.Vector3();
+const uiState = {
+  menuMinimized: false
+};
 
 const vertexShader = `
   uniform vec3 uObserverPos;
@@ -539,6 +543,9 @@ function createTextPlane({ width, height, text, font = 'bold 92px Arial', color 
 
   const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+  mesh.userData.width = width;
+  mesh.userData.height = height;
+  mesh.userData.material = material;
 
   mesh.userData.setText = (nextText) => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -557,9 +564,10 @@ function createTextPlane({ width, height, text, font = 'bold 92px Arial', color 
 function createVRButton(label, width, height) {
   const baseColor = new THREE.Color(0x172334);
   const hoverColor = new THREE.Color(0x24486c);
-  const activeColor = new THREE.Color(0x147aff);
 
   const group = new THREE.Group();
+  group.userData.width = width;
+  group.userData.height = height;
   const bg = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
     new THREE.MeshBasicMaterial({ color: baseColor.clone(), transparent: true, opacity: 0.96 })
@@ -587,13 +595,21 @@ function createVRButton(label, width, height) {
     text,
     baseColor,
     hoverColor,
-    activeColor,
     setHover(hovered) {
       bg.material.color.copy(hovered ? hoverColor : baseColor);
     }
   };
 
-  return { group, hitTarget: bg, text };
+  return {
+    group,
+    hitTarget: bg,
+    text,
+    bgMaterial: bg.material,
+    borderMaterial: border.material,
+    setLabel(nextLabel) {
+      text.userData.setText(nextLabel);
+    }
+  };
 }
 
 function createVRToggleRow(label, initialValue) {
@@ -637,13 +653,13 @@ function createVRToggleRow(label, initialValue) {
     }
   };
 
-  return { row, hitTarget: bg };
+  return { row, hitTarget: bg, bgMaterial: bg.material };
 }
 
 function createVRSliderRow(initialValue) {
   const row = new THREE.Group();
 
-  const title = createTextPlane({ width: 1.2, height: 0.18, text: 'β = v/c', font: 'bold 84px Arial', align: 'left' });
+  const title = createTextPlane({ width: 1.2, height: 0.18, text: 'beta = v/c', font: 'bold 84px Arial', align: 'left' });
   title.position.set(-1.05, 0.28, 0.02);
   row.add(title);
 
@@ -651,11 +667,13 @@ function createVRSliderRow(initialValue) {
   valueLabel.position.set(1.05, 0.28, 0.02);
   row.add(valueLabel);
 
-  const { group: minusGroup, hitTarget: minusTarget } = createVRButton('−', 0.28, 0.28);
+  const minusButton = createVRButton('-', 0.28, 0.28);
+  const { group: minusGroup, hitTarget: minusTarget } = minusButton;
   minusGroup.position.set(-1.35, -0.03, 0.02);
   row.add(minusGroup);
 
-  const { group: plusGroup, hitTarget: plusTarget } = createVRButton('+', 0.28, 0.28);
+  const plusButton = createVRButton('+', 0.28, 0.28);
+  const { group: plusGroup, hitTarget: plusTarget } = plusButton;
   plusGroup.position.set(1.35, -0.03, 0.02);
   row.add(plusGroup);
 
@@ -723,83 +741,165 @@ function createVRSliderRow(initialValue) {
     sliderTarget: track,
     minusTarget,
     plusTarget,
+    minusButton,
+    plusButton,
     valueLabel,
-    setValue: track.userData.setValue
+    setValue: track.userData.setValue,
+    trackMaterial: track.material,
+    fillMaterial: fill.material,
+    borderMaterial: border.material
   };
 }
 
+const xrPanelSizes = {
+  expanded: { width: 3.55, height: 3.56 },
+  collapsed: { width: 3.55, height: 0.58 }
+};
+
 const vrUI = {
   panel: new THREE.Group(),
+  content: new THREE.Group(),
   interactables: [],
-  hoverObjects: new Set(),
+  persistentInteractables: [],
   sliderRow: null,
   lorentzRow: null,
-  aberrationRow: null
+  aberrationRow: null,
+  sceneGridButton: null,
+  sceneEyeButton: null,
+  minimizeButton: null,
+  surfaceMaterials: [],
+  accentMaterials: [],
+  borderMaterials: []
 };
 vrUI.panel.visible = false;
 scene.add(vrUI.panel);
 
 const panelBg = new THREE.Mesh(
-  new THREE.PlaneGeometry(3.45, 2.55),
-  new THREE.MeshBasicMaterial({ color: 0x0a1018, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+  new THREE.PlaneGeometry(1, 1),
+  new THREE.MeshBasicMaterial({ color: 0x0a1018, transparent: true, opacity: 0.52, side: THREE.DoubleSide })
 );
 vrUI.panel.add(panelBg);
 
 const panelOutline = new THREE.LineLoop(
-  new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(-1.725, -1.275, 0.01),
-    new THREE.Vector3(1.725, -1.275, 0.01),
-    new THREE.Vector3(1.725, 1.275, 0.01),
-    new THREE.Vector3(-1.725, 1.275, 0.01)
-  ]),
-  new THREE.LineBasicMaterial({ color: 0x8bc2ff, transparent: true, opacity: 0.35 })
+  new THREE.BufferGeometry(),
+  new THREE.LineBasicMaterial({ color: 0x8bc2ff, transparent: true, opacity: 0.24 })
 );
 vrUI.panel.add(panelOutline);
+vrUI.borderMaterials.push(panelOutline.material);
 
-panelTitle = createTextPlane({ width: 3.1, height: 0.28, text: 'Relativistic observer VR demo', font: 'bold 86px Arial', align: 'left' });
-panelTitle.position.set(-1.45, 0.94, 0.03);
+panelTitle = createTextPlane({ width: 2.45, height: 0.22, text: 'Relativistic observer XR demo', font: 'bold 60px Arial', align: 'left' });
 vrUI.panel.add(panelTitle);
-setSceneMode(sceneMode);
+
+vrUI.minimizeButton = createVRButton('Hide', 0.92, 0.24);
+vrUI.minimizeButton.hitTarget.userData.kind = 'menu-toggle';
+vrUI.panel.add(vrUI.minimizeButton.group);
+vrUI.persistentInteractables.push(vrUI.minimizeButton.hitTarget);
+vrUI.surfaceMaterials.push(vrUI.minimizeButton.bgMaterial);
+vrUI.borderMaterials.push(vrUI.minimizeButton.borderMaterial);
+
+vrUI.panel.add(vrUI.content);
 
 vrUI.sliderRow = createVRSliderRow(parseFloat(betaSlider.value));
-vrUI.sliderRow.row.position.set(0, 0.52, 0.03);
-vrUI.panel.add(vrUI.sliderRow.row);
+vrUI.sliderRow.row.position.set(0, 0.78, 0.03);
+vrUI.content.add(vrUI.sliderRow.row);
 vrUI.interactables.push(vrUI.sliderRow.sliderTarget, vrUI.sliderRow.minusTarget, vrUI.sliderRow.plusTarget);
+vrUI.surfaceMaterials.push(vrUI.sliderRow.trackMaterial, vrUI.sliderRow.minusButton.bgMaterial, vrUI.sliderRow.plusButton.bgMaterial);
+vrUI.accentMaterials.push(vrUI.sliderRow.fillMaterial);
+vrUI.borderMaterials.push(vrUI.sliderRow.borderMaterial, vrUI.sliderRow.minusButton.borderMaterial, vrUI.sliderRow.plusButton.borderMaterial);
 
 vrUI.lorentzRow = createVRToggleRow('Lorentz transform', lorentzToggle.checked);
-vrUI.lorentzRow.row.position.set(0, 0.06, 0.03);
-vrUI.panel.add(vrUI.lorentzRow.row);
+vrUI.lorentzRow.row.position.set(0, 0.36, 0.03);
+vrUI.content.add(vrUI.lorentzRow.row);
 vrUI.lorentzRow.hitTarget.userData.kind = 'lorentz-toggle';
 vrUI.interactables.push(vrUI.lorentzRow.hitTarget);
+vrUI.surfaceMaterials.push(vrUI.lorentzRow.bgMaterial);
 
 vrUI.aberrationRow = createVRToggleRow('Aberration', aberrationToggle.checked);
-vrUI.aberrationRow.row.position.set(0, -0.34, 0.03);
-vrUI.panel.add(vrUI.aberrationRow.row);
+vrUI.aberrationRow.row.position.set(0, -0.06, 0.03);
+vrUI.content.add(vrUI.aberrationRow.row);
 vrUI.aberrationRow.hitTarget.userData.kind = 'aberration-toggle';
 vrUI.interactables.push(vrUI.aberrationRow.hitTarget);
-
-const vrHelp1 = createTextPlane({ width: 3.3, height: 0.16, text: 'Turn your hand/controller palm up to open the menu', font: '68px Arial', color: '#c9d9eb', align: 'left' });
-vrHelp1.position.set(-1.45, -0.72, 0.03);
-vrUI.panel.add(vrHelp1);
-
-const vrHelp2 = createTextPlane({ width: 3.3, height: 0.16, text: 'Left stick: move, right stick: turn + vertical fly', font: '68px Arial', color: '#c9d9eb', align: 'left' });
-vrHelp2.position.set(-1.45, -0.92, 0.03);
-vrUI.panel.add(vrHelp2);
+vrUI.surfaceMaterials.push(vrUI.aberrationRow.bgMaterial);
 
 const vrSceneButtonGrid = createVRButton('Cube grid scene', 2.7, 0.36);
-vrSceneButtonGrid.group.position.set(0, -1.25, 0.03);
-vrUI.panel.add(vrSceneButtonGrid.group);
+vrSceneButtonGrid.group.position.set(0, -0.58, 0.03);
+vrUI.content.add(vrSceneButtonGrid.group);
 vrSceneButtonGrid.hitTarget.userData.kind = 'scene-grid';
 vrUI.interactables.push(vrSceneButtonGrid.hitTarget);
+vrUI.surfaceMaterials.push(vrSceneButtonGrid.bgMaterial);
+vrUI.borderMaterials.push(vrSceneButtonGrid.borderMaterial);
+vrUI.sceneGridButton = vrSceneButtonGrid;
 
 const vrSceneButtonEye = createVRButton('Eye-relative scene', 2.7, 0.36);
-vrSceneButtonEye.group.position.set(0, -1.72, 0.03);
-vrUI.panel.add(vrSceneButtonEye.group);
+vrSceneButtonEye.group.position.set(0, -1.02, 0.03);
+vrUI.content.add(vrSceneButtonEye.group);
 vrSceneButtonEye.hitTarget.userData.kind = 'scene-eye';
 vrUI.interactables.push(vrSceneButtonEye.hitTarget);
+vrUI.surfaceMaterials.push(vrSceneButtonEye.bgMaterial);
+vrUI.borderMaterials.push(vrSceneButtonEye.borderMaterial);
+vrUI.sceneEyeButton = vrSceneButtonEye;
 
-vrUI.panel.position.set(0, 1.3, -2.6);
-vrUI.panel.lookAt(new THREE.Vector3(0, 1.2, 0));
+const vrHelp1 = createTextPlane({ width: 3.15, height: 0.14, text: 'XR: use Hide to collapse the menu when you want a clear view', font: '60px Arial', color: '#c9d9eb', align: 'left' });
+vrHelp1.position.set(-0.02, -1.40, 0.03);
+vrUI.content.add(vrHelp1);
+
+const vrHelp2 = createTextPlane({ width: 3.15, height: 0.14, text: 'Left stick: move, right stick: turn + vertical fly', font: '60px Arial', color: '#c9d9eb', align: 'left' });
+vrHelp2.position.set(-0.02, -1.60, 0.03);
+vrUI.content.add(vrHelp2);
+
+function updateXRPanelFrame(width, height) {
+  panelBg.scale.set(width, height, 1);
+  if (panelOutline.geometry) {
+    panelOutline.geometry.dispose();
+  }
+  panelOutline.geometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-width / 2, -height / 2, 0.01),
+    new THREE.Vector3(width / 2, -height / 2, 0.01),
+    new THREE.Vector3(width / 2, height / 2, 0.01),
+    new THREE.Vector3(-width / 2, height / 2, 0.01)
+  ]);
+}
+
+function applyXRPanelLayout() {
+  const { width, height } = uiState.menuMinimized ? xrPanelSizes.collapsed : xrPanelSizes.expanded;
+  const headerInset = 0.18;
+  const titleWidth = panelTitle.userData.width || 2.4;
+  const buttonWidth = vrUI.minimizeButton.group.userData.width || 0.92;
+  const top = height / 2;
+  const left = -width / 2;
+  const right = width / 2;
+
+  updateXRPanelFrame(width, height);
+  panelTitle.position.set(left + headerInset + titleWidth / 2, top - 0.18, 0.03);
+  vrUI.minimizeButton.group.position.set(right - headerInset - buttonWidth / 2, top - 0.18, 0.04);
+  vrUI.content.visible = !uiState.menuMinimized;
+}
+
+function getXRMenuInteractables() {
+  return uiState.menuMinimized
+    ? vrUI.persistentInteractables
+    : [...vrUI.persistentInteractables, ...vrUI.interactables];
+}
+
+function applyMenuMinimizedState() {
+  desktopPanel.classList.toggle('panel-collapsed', uiState.menuMinimized);
+  if (panelMinimizeButton) {
+    panelMinimizeButton.textContent = uiState.menuMinimized ? 'Expand' : 'Minimize';
+    panelMinimizeButton.setAttribute('aria-expanded', String(!uiState.menuMinimized));
+  }
+  if (vrUI.minimizeButton) {
+    vrUI.minimizeButton.setLabel(uiState.menuMinimized ? 'Show' : 'Hide');
+  }
+  applyXRPanelLayout();
+}
+
+function setMenuMinimized(minimized) {
+  uiState.menuMinimized = Boolean(minimized);
+  applyMenuMinimizedState();
+}
+
+applyMenuMinimizedState();
+setSceneMode(sceneMode);
 
 const isHandheldDevice =
   Boolean(navigator.userAgentData?.mobile) ||
@@ -848,7 +948,45 @@ function shouldShowDesktopOverlay() {
 
 function shouldShowWorldSpacePanel() {
   if (!renderer.xr.isPresenting) return false;
-  return xrState.sessionMode !== 'immersive-ar' || !isHandheldDevice;
+  return !(isImmersiveARPresenting() && xrState.overlayEnabled && isHandheldDevice);
+}
+
+function getXRMenuPreset() {
+  if (xrState.sessionMode === 'immersive-ar') {
+    return {
+      forward: 3.0,
+      right: -0.82,
+      up: 0.34,
+      panelOpacity: 0.58,
+      surfaceOpacity: 0.8,
+      accentOpacity: 0.9,
+      borderOpacity: 0.3
+    };
+  }
+
+  return {
+    forward: 4.15,
+    right: 0,
+    up: -0.08,
+    panelOpacity: 0.24,
+    surfaceOpacity: 0.5,
+    accentOpacity: 0.68,
+    borderOpacity: 0.16
+  };
+}
+
+function applyXRMenuAppearance() {
+  const preset = getXRMenuPreset();
+  panelBg.material.opacity = preset.panelOpacity;
+  for (const material of vrUI.surfaceMaterials) {
+    material.opacity = preset.surfaceOpacity;
+  }
+  for (const material of vrUI.accentMaterials) {
+    material.opacity = preset.accentOpacity;
+  }
+  for (const material of vrUI.borderMaterials) {
+    material.opacity = preset.borderOpacity;
+  }
 }
 
 function updateBackdropVisibility() {
@@ -1250,7 +1388,13 @@ function setSceneMode(mode) {
     sceneEyeButton.textContent = sceneMode === 2 ? 'Back to moving-object scene' : 'Switch to eye-relative scene';
   }
   if (panelTitle) {
-    panelTitle.userData.setText(`Relativistic ${sceneLabels[sceneMode]}`);
+    panelTitle.userData.setText(`XR controls: ${sceneLabels[sceneMode]}`);
+  }
+  if (vrUI.sceneGridButton) {
+    vrUI.sceneGridButton.setLabel(sceneMode === 1 ? 'Back to objects' : 'Cube grid scene');
+  }
+  if (vrUI.sceneEyeButton) {
+    vrUI.sceneEyeButton.setLabel(sceneMode === 2 ? 'Back to objects' : 'Eye-relative scene');
   }
   sharedUniforms.uCheckerEnabled.value = sceneMode === 1 ? 0 : 1;
   updateSceneVisibility();
@@ -1315,6 +1459,12 @@ lorentzToggle.addEventListener('change', () => {
 aberrationToggle.addEventListener('change', () => {
   setAberrationEnabled(aberrationToggle.checked);
 });
+
+if (panelMinimizeButton) {
+  panelMinimizeButton.addEventListener('click', () => {
+    setMenuMinimized(!uiState.menuMinimized);
+  });
+}
 
 if (sceneToggleButton) {
   sceneToggleButton.addEventListener('click', toggleGridScene);
@@ -1457,6 +1607,9 @@ const tempMatrix = new THREE.Matrix4();
 const tempOrigin = new THREE.Vector3();
 const tempDirection = new THREE.Vector3();
 const tempVec3 = new THREE.Vector3();
+const tempVec4 = new THREE.Vector3();
+const tempVec5 = new THREE.Vector3();
+const tempQuat = new THREE.Quaternion();
 const controllerGripVisualLength = 8;
 const rayStartOffset = 0.06;
 
@@ -1527,7 +1680,7 @@ const controllers = [
 ];
 
 function setVRHoverStates(activeObjects) {
-  for (const obj of vrUI.interactables) {
+  for (const obj of [...vrUI.persistentInteractables, ...vrUI.interactables]) {
     if (typeof obj.userData.setHover === 'function') {
       obj.userData.setHover(activeObjects.has(obj));
     }
@@ -1549,6 +1702,9 @@ function activateVRUI(target, intersection) {
       break;
     case 'aberration-toggle':
       setAberrationEnabled(!aberrationToggle.checked);
+      break;
+    case 'menu-toggle':
+      setMenuMinimized(!uiState.menuMinimized);
       break;
     case 'slider':
       if (intersection && intersection.uv) {
@@ -1576,10 +1732,22 @@ function updateVRMenuPose(xrFrame) {
     return;
   }
 
-  vrUI.panel.position.set(0, 1.2, -3.2);
-  vrUI.panel.lookAt(new THREE.Vector3(0, 1.2, 0));
+  const preset = getXRMenuPreset();
+  applyXRMenuAppearance();
+
+  camera.getWorldPosition(tempVec3);
+  camera.getWorldQuaternion(tempQuat);
+  tempDirection.set(0, 0, -1).applyQuaternion(tempQuat).normalize();
+  tempVec4.set(1, 0, 0).applyQuaternion(tempQuat).normalize();
+  tempVec5.set(0, 1, 0).applyQuaternion(tempQuat).normalize();
+
+  vrUI.panel.position.copy(tempVec3);
+  vrUI.panel.position.addScaledVector(tempDirection, preset.forward);
+  vrUI.panel.position.addScaledVector(tempVec4, preset.right);
+  vrUI.panel.position.addScaledVector(tempVec5, preset.up);
+  vrUI.panel.quaternion.copy(tempQuat);
+
   const euler = new THREE.Euler().setFromQuaternion(vrUI.panel.quaternion, 'YXZ');
-  euler.x = 0;
   euler.z = 0;
   vrUI.panel.quaternion.setFromEuler(euler);
   vrUI.panel.visible = true;
@@ -1601,6 +1769,7 @@ function updateVRUIInteraction() {
   }
 
   const activeObjects = new Set();
+  const activeInteractables = getXRMenuInteractables();
 
   for (const controller of controllers) {
     const ray = controller.getObjectByName('ray');
@@ -1621,7 +1790,7 @@ function updateVRUIInteraction() {
     tempDirection.set(0, 0, -1).applyMatrix4(tempMatrix).normalize();
     raycaster.set(tempOrigin, tempDirection);
 
-    const hits = raycaster.intersectObjects(vrUI.interactables, false);
+    const hits = raycaster.intersectObjects(activeInteractables, false);
     const hit = hits[0] || null;
     controller.userData.hovered = hit ? hit.object : null;
     controller.userData.intersection = hit;

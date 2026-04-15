@@ -81,11 +81,45 @@
         backdrop-filter: blur(8px);
         box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
         line-height: 1.35;
+        display: flex;
+        flex-direction: column;
       }
 
       #panel h1 {
-        margin: 0 0 10px;
+        margin: 0;
         font-size: 18px;
+      }
+
+      .panel-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+
+      .panel-title {
+        flex: 1 1 auto;
+      }
+
+      .panel-body {
+        display: block;
+      }
+
+      .panel-toggle-button {
+        flex: 0 0 auto;
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.08);
+        color: #f2f6ff;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .panel-toggle-button:hover {
+        background: rgba(255, 255, 255, 0.14);
       }
 
       .row {
@@ -147,6 +181,18 @@
       #panel.hidden {
         display: none;
       }
+
+      #panel.panel-collapsed {
+        width: min(320px, calc(100vw - 24px));
+      }
+
+      #panel.panel-collapsed .panel-header {
+        margin-bottom: 0;
+      }
+
+      #panel.panel-collapsed .panel-body {
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -155,43 +201,48 @@
 
     <div id="overlayRoot">
       <div id="panel" aria-label="desktop-controls">
-        <h1>Relativistic observer XR demo</h1>
+        <div class="panel-header">
+          <h1 class="panel-title">Relativistic observer XR demo</h1>
+          <button id="panelMinimizeButton" class="panel-toggle-button" type="button" aria-expanded="true" aria-controls="panelBody">
+            Minimize
+          </button>
+        </div>
 
-        <div class="row">
-          <div class="label-line">
-            <span>&beta; = v/c</span>
-            <span id="betaValue">0.80</span>
+        <div id="panelBody" class="panel-body">
+          <div class="row">
+            <div class="label-line">
+              <span>&beta; = v/c</span>
+              <span id="betaValue">0.80</span>
+            </div>
+            <input id="betaSlider" type="range" min="0" max="0.99" step="0.01" value="0.80" />
           </div>
-          <input id="betaSlider" type="range" min="0" max="0.99" step="0.01" value="0.80" />
-        </div>
 
-        <div class="row toggle-stack">
-          <label>
-            <input id="lorentzToggle" type="checkbox" checked />
-            Enable Lorentz transform (length contraction)
-          </label>
-          <label>
-            <input id="aberrationToggle" type="checkbox" checked />
-            Enable aberration (retarded position)
-          </label>
-        </div>
+          <div class="row toggle-stack">
+            <label>
+              <input id="lorentzToggle" type="checkbox" checked />
+              Enable Lorentz transform (length contraction)
+            </label>
+            <label>
+              <input id="aberrationToggle" type="checkbox" checked />
+              Enable aberration (retarded position)
+            </label>
+          </div>
 
-        <div class="row">
-          <button id="sceneToggle" class="scene-button" type="button">Switch to cube grid scene</button>
-        </div>
-        <div class="row">
-          <button id="sceneEyeButton" class="scene-button" type="button">Switch to eye-relative scene</button>
-        </div>
+          <div class="row">
+            <button id="sceneToggle" class="scene-button" type="button">Switch to cube grid scene</button>
+          </div>
+          <div class="row">
+            <button id="sceneEyeButton" class="scene-button" type="button">Switch to eye-relative scene</button>
+          </div>
 
-        <div class="small">
-          Desktop: click the scene, then use <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> to move,
-          <span class="kbd">Q</span>/<span class="kbd">E</span> up/down, mouse to look, <span class="kbd">Shift</span> to boost, <span class="kbd">Esc</span> to release mouse.
-        </div>
-        <div class="small">
-          MR/AR: use <strong>Enter MR</strong> on devices with WebXR passthrough. On phones, <strong>Enable Phone AR</strong> turns on the rear camera for flat-screen AR, and you can drag to look if motion access is denied.
-        </div>
-        <div class="small">
-          VR: press <strong>Enter VR</strong>, then turn your controller or hand palm up to open the menu. Left thumbstick = move/strafe in headset look direction, right thumbstick = turn + vertical fly.
+          <div class="small">
+            Desktop: click the scene, then use <span class="kbd">W</span><span class="kbd">A</span><span class="kbd">S</span><span class="kbd">D</span> to move,
+            <span class="kbd">Q</span>/<span class="kbd">E</span> up/down, mouse to look, <span class="kbd">Shift</span> to boost, <span class="kbd">Esc</span> to release mouse.
+          </div>
+        
+          <div class="small">
+            VR: Left thumbstick = move/strafe in headset look direction, right thumbstick = turn + vertical fly.
+          </div>
         </div>
       </div>
 
