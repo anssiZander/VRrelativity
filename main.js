@@ -45,6 +45,12 @@ textureLoader.load(
     // Create a new texture from the modified canvas
     const modifiedTexture = new THREE.CanvasTexture(canvas);
     modifiedTexture.colorSpace = THREE.SRGBColorSpace;
+    modifiedTexture.wrapS = THREE.ClampToEdgeWrapping;
+    modifiedTexture.wrapT = THREE.ClampToEdgeWrapping;
+    modifiedTexture.minFilter = THREE.LinearFilter;
+    modifiedTexture.magFilter = THREE.LinearFilter;
+    
+    // Use scene.background for proper VR background rendering
     scene.background = modifiedTexture;
   },
   undefined,
